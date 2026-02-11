@@ -25,6 +25,7 @@ Trước đây khi access token hết hạn và F5 trang:
 - ✅ `protoGetRecoveryCodes()`
 
 **Flow:**
+
 ```
 protoGetProfile() called
   → gRPC call with old token
