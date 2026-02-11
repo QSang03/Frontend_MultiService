@@ -1,0 +1,53 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "npm run buf:install && next dev",
+    "build": "npm run buf:install && next build",
+    "buf:install": "npm install @buf/nkc_multiservice.bufbuild_es@latest ",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest",
+    "proto:generate": "node scripts/generate-proto.js",
+    "proto:sync": "node scripts/sync-proto.js",
+    "proto:sync:watch": "node scripts/sync-proto.js --watch"
+  },
+  "dependencies": {
+    "@buf/nkc_multiservice.bufbuild_es": "^2.11.0-20260203042446-573d5494fbd7.1",
+    "@bufbuild/protobuf": "^2.11.0",
+    "@connectrpc/connect": "^2.1.1",
+    "@connectrpc/connect-node": "^2.1.1",
+    "@connectrpc/connect-web": "^2.1.1",
+    "@protobuf-ts/runtime": "^2.11.1",
+    "@protobuf-ts/runtime-rpc": "^2.11.1",
+    "@types/leaflet": "^1.9.21",
+    "axios": "^1.13.2",
+    "clsx": "^2.1.1",
+    "jose": "^6.1.3",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.562.0",
+    "next": "^16.1.6",
+    "protobufjs": "^8.0.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-leaflet": "^5.0.0",
+    "recharts": "^3.6.0",
+    "tailwind-merge": "^3.4.0"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.63.0",
+    "@protobuf-ts/plugin": "^2.11.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "babel-plugin-react-compiler": "1.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
+    "tailwindcss": "^4",
+    "ts-proto": "^2.10.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
