@@ -229,8 +229,8 @@ export default function PerformanceDashboard() {
                 </button>
               </div>
               
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="h-[300px] w-full min-w-0">
+                <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={CHART_DATA} barSize={40}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                     <XAxis 
