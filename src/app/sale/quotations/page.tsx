@@ -6,12 +6,14 @@ import { FileText, Plus, Send, Clock, AlertCircle, X } from 'lucide-react';
 interface Quote {
   id: string;
   customer: string;
-  status: 'sent' | 'draft' | 'approval';
+  status: 'sent' | 'draft' | 'internal-review' | 'approval' | 'approved';
   dealType: 'long-term' | 'one-deal';
   totalValue: string;
   netProfit: string;
   createdDate: string;
   services: string[];
+  quotationId?: string;
+  ticketId?: string;
 }
 
 interface Template {
@@ -46,7 +48,7 @@ const mockQuotes: Quote[] = [
   {
     id: 'Q-2024-004',
     customer: 'Big Corp Inc',
-    status: 'approval',
+    status: 'internal-review',
     dealType: 'long-term',
     totalValue: '200.000.000 ₫',
     netProfit: '40.000.000 ₫',
@@ -95,15 +97,24 @@ const mockTemplates: Template[] = [
 ];
 
 export default function SaleQuotationsPage() {
-  
+  const [quotes, setQuotes] = useState<Quote[]>(mockQuotes);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [submittingQuote, setSubmittingQuote] = useState(false);
+  const [workflowMessage, setWorkflowMessage] = useState('');
+  const [selectedClient, setSelectedClient] = useState('');
+  const [selectedDealType, setSelectedDealType] = useState<'one-deal' | 'long-term'>('one-deal');
+  const [ticketId, setTicketId] = useState('');
   
   const [quoteItems, setQuoteItems] = useState<{ name: string; price: number }[]>([
       { name: 'Server Maintenance (Monthly)', price: 5000000 },
       { name: 'On-site Support (5h)', price: 2500000 }
   ]);
   const [discount, setDiscount] = useState(0);
+  const [internalReviewApproved, setInternalReviewApproved] = useState(false);
+
+  const marginThreshold = 20;
+  const baseCostRatio = 0.72;
 
   const handleTemplateSelect = (template: Template) => {
     setQuoteItems(template.defaultItems);
@@ -115,6 +126,108 @@ export default function SaleQuotationsPage() {
     const subtotal = quoteItems.reduce((acc, item) => acc + item.price, 0);
     const discountAmount = subtotal * (discount / 100);
     return subtotal - discountAmount;
+  };
+
+  const calculateMarginPct = () => {
+    const total = calculateTotal();
+    if (total <= 0) return 0;
+    const estimatedCost = total * baseCostRatio;
+    return ((total - estimatedCost) / total) * 100;
+  };
+
+  const marginPct = calculateMarginPct();
+  const marginTooLow = marginPct < marginThreshold;
+
+  const handleSendQuotationToClient = async () => {
+    if (!selectedClient || !ticketId) {
+      setWorkflowMessage('Vui lòng chọn Client và nhập Ticket ID trước khi gửi báo giá.');
+      return;
+    }
+
+    setSubmittingQuote(true);
+    setWorkflowMessage('Đang SubmitQuotation + SendQuotationToClient...');
+
+    try {
+      const totalAmount = calculateTotal();
+      const submitRes = await fetch('/api/admin/tickets/quotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticket_id: ticketId,
+          total_amount: String(totalAmount),
+          tax_amount: '0',
+          currency: 'VND',
+          note: 'Submitted by Sale quotation flow',
+          items: quoteItems,
+        }),
+      });
+
+      const submitJson = await submitRes.json();
+      if (!submitRes.ok) {
+        setWorkflowMessage(submitJson?.error || 'SubmitQuotation thất bại.');
+        return;
+      }
+
+      const quotation = submitJson?.quotation as { id?: string } | undefined;
+      const newQuote: Quote = {
+        id: `Q-${new Date().getFullYear()}-${String(quotes.length + 1).padStart(3, '0')}`,
+        customer: selectedClient,
+        status: 'sent',
+        dealType: selectedDealType,
+        totalValue: `${totalAmount.toLocaleString()} ₫`,
+        netProfit: `${Math.max(0, Math.round((marginPct / 100) * totalAmount)).toLocaleString()} ₫`,
+        createdDate: new Date().toISOString().slice(0, 10),
+        services: quoteItems.map((item) => item.name),
+        quotationId: quotation?.id,
+        ticketId,
+      };
+
+      setQuotes((prev) => [newQuote, ...prev]);
+      setShowCreateModal(false);
+      setWorkflowMessage('Đã gửi báo giá cho khách. Chờ khách phê duyệt (approval workflow).');
+    } catch {
+      setWorkflowMessage('Lỗi kết nối khi gửi báo giá.');
+    } finally {
+      setSubmittingQuote(false);
+    }
+  };
+
+  const handleApproveQuotation = async (quote: Quote) => {
+    if (!quote.quotationId || !quote.ticketId) {
+      setWorkflowMessage('Quotation này chưa có ID backend để approve.');
+      return;
+    }
+
+    setWorkflowMessage('Đang ApproveQuotation và chuyển Ticket sang OPEN...');
+    try {
+      const approveRes = await fetch('/api/admin/tickets/quotations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'accept', quotation_id: quote.quotationId }),
+      });
+
+      const approveJson = await approveRes.json();
+      if (!approveRes.ok) {
+        setWorkflowMessage(approveJson?.error || 'ApproveQuotation thất bại.');
+        return;
+      }
+
+      const updateTicketRes = await fetch('/api/admin/tickets', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_status', ticket_id: quote.ticketId, status: 3 }),
+      });
+
+      if (!updateTicketRes.ok) {
+        const updateJson = await updateTicketRes.json().catch(() => ({}));
+        setWorkflowMessage(updateJson?.error || 'Approved quotation nhưng không update được ticket OPEN.');
+      }
+
+      setQuotes((prev) => prev.map((item) => (item.id === quote.id ? { ...item, status: 'approved' } : item)));
+      setWorkflowMessage('Quotation đã được approve, ticket đã chuyển OPEN.');
+    } catch {
+      setWorkflowMessage('Lỗi kết nối khi approve quotation.');
+    }
   };
 
   const getStatusBadge = (status: Quote['status']) => {
@@ -138,6 +251,20 @@ export default function SaleQuotationsPage() {
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
             <AlertCircle className="w-3 h-3" />
             Approval
+          </span>
+        );
+      case 'internal-review':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+            <AlertCircle className="w-3 h-3" />
+            Internal Review
+          </span>
+        );
+      case 'approved':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            <Clock className="w-3 h-3" />
+            Approved
           </span>
         );
     }
@@ -181,7 +308,7 @@ export default function SaleQuotationsPage() {
 
       {/* Quotes List */}
       <div className="space-y-4">
-        {mockQuotes.map((quote) => (
+        {quotes.map((quote) => (
           <div
             key={quote.id}
             className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 hover:border-blue-300 transition-colors"
@@ -218,6 +345,9 @@ export default function SaleQuotationsPage() {
                 {quote.status === 'approval' && (
                   <p className="text-xs text-orange-600 mt-2">Includes 15% Discount</p>
                 )}
+                {quote.status === 'approved' && (
+                  <p className="text-xs text-green-600 mt-2">Quotation APPROVED → Ticket chuyển OPEN</p>
+                )}
                 <div className="flex gap-2 mt-4">
                   <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">
                     Details
@@ -227,9 +357,20 @@ export default function SaleQuotationsPage() {
                       <Send className="w-3 h-3" />
                       Send via E-Sign
                     </button>
-                  ) : quote.status === 'approval' ? (
+                  ) : quote.status === 'sent' && quote.quotationId ? (
+                    <button
+                      onClick={() => handleApproveQuotation(quote)}
+                      className="text-sm bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded font-medium"
+                    >
+                      Mark Client Approved
+                    </button>
+                  ) : quote.status === 'approval' || quote.status === 'internal-review' ? (
                     <button className="text-sm bg-orange-100 text-orange-700 px-3 py-1.5 rounded font-medium">
                       Waiting Approval
+                    </button>
+                  ) : quote.status === 'approved' ? (
+                    <button className="text-sm bg-green-100 text-green-700 px-3 py-1.5 rounded font-medium">
+                      Ticket OPEN
                     </button>
                   ) : (
                     <button className="flex items-center gap-1 text-sm bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700">
@@ -318,12 +459,26 @@ export default function SaleQuotationsPage() {
               {/* Client */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Client</label>
-                <select className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900">
-                  <option>Select a client...</option>
-                  <option>TechSolutions Ltd</option>
-                  <option>Nguyen Van A</option>
-                  <option>Big Corp Inc</option>
+                <select
+                  value={selectedClient}
+                  onChange={(e) => setSelectedClient(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                >
+                  <option value="">Select a client...</option>
+                  <option value="TechSolutions Ltd">TechSolutions Ltd</option>
+                  <option value="Nguyen Van A">Nguyen Van A</option>
+                  <option value="Big Corp Inc">Big Corp Inc</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Ticket ID (AGREED)</label>
+                <input
+                  value={ticketId}
+                  onChange={(e) => setTicketId(e.target.value)}
+                  placeholder="Nhập ticket_id cần báo giá"
+                  className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                />
               </div>
 
               {/* Engagement Model */}
@@ -333,11 +488,23 @@ export default function SaleQuotationsPage() {
                 </label>
                 <div className="flex gap-6">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="model" className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500" defaultChecked />
+                    <input
+                      type="radio"
+                      name="model"
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                      checked={selectedDealType === 'one-deal'}
+                      onChange={() => setSelectedDealType('one-deal')}
+                    />
                     <span className="text-sm text-gray-900">One-deal</span>
                   </label>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" name="model" className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
+                    <input
+                      type="radio"
+                      name="model"
+                      className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                      checked={selectedDealType === 'long-term'}
+                      onChange={() => setSelectedDealType('long-term')}
+                    />
                     <span className="text-sm text-gray-900">Long-term</span>
                   </label>
                 </div>
@@ -368,7 +535,10 @@ export default function SaleQuotationsPage() {
                   <input
                     type="number"
                     value={discount}
-                    onChange={(e) => setDiscount(Number(e.target.value))}
+                    onChange={(e) => {
+                      setDiscount(Number(e.target.value));
+                      setInternalReviewApproved(false);
+                    }}
                     placeholder="0"
                     className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
@@ -381,10 +551,24 @@ export default function SaleQuotationsPage() {
                   </div>
                 </div>
               </div>
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
+                <p className="text-sm font-semibold text-gray-900">Margin Control (CalculateMargin - GAP)</p>
+                <p className="text-sm text-gray-600">Estimated Margin: <span className={`font-semibold ${marginTooLow ? 'text-red-600' : 'text-green-600'}`}>{marginPct.toFixed(1)}%</span></p>
+                <p className="text-xs text-gray-500">Threshold: {marginThreshold}%</p>
+              </div>
             </div>
 
             {/* Footer */}
             <div className="flex justify-end gap-3 p-6 pt-2 border-t-0 bg-white">
+              <button
+                type="button"
+                onClick={() => setInternalReviewApproved(true)}
+                disabled={!marginTooLow || internalReviewApproved}
+                className="px-4 py-2 text-sm font-medium bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                RequestInternalReview
+              </button>
               <button
                 onClick={() => setShowCreateModal(false)}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -392,11 +576,21 @@ export default function SaleQuotationsPage() {
               >
                 Cancel
               </button>
-              <button className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
-                Create Draft
+              <button
+                disabled={marginTooLow && !internalReviewApproved}
+                onClick={handleSendQuotationToClient}
+                className="px-4 py-2 text-sm font-medium bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+              >
+                {submittingQuote ? 'Sending...' : 'SendQuotationToClient'}
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {workflowMessage && (
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          {workflowMessage}
         </div>
       )}
     </div>

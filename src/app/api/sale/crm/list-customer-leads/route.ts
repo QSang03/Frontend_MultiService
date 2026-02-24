@@ -1,0 +1,21 @@
+import { NextResponse } from 'next/server';
+import { protoListCustomerLeads } from '@/lib/proto/crm-client';
+import { mapUserProfileToSalesLead } from '@/lib/crm-mapper';
+
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const pageSize = Number(searchParams.get('page_size') || '20');
+  const pageToken = searchParams.get('page_token') || '';
+  const searchTerm = searchParams.get('search_term') || undefined;
+
+  const result = await protoListCustomerLeads({ pageSize, pageToken, searchTerm });
+  if (!result.success || !result.response) {
+    return NextResponse.json({ error: result.error || 'ListCustomerLeads failed' }, { status: 500 });
+  }
+
+  return NextResponse.json({
+    leads: result.response.leads.map((user) => mapUserProfileToSalesLead(user)),
+    next_page_token: result.response.nextPageToken,
+    total_count: result.response.totalCount,
+  });
+}

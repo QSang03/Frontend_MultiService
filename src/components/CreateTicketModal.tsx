@@ -4,7 +4,7 @@ import { useState } from 'react';
 interface CreateTicketModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (ticket: { subject: string; client: string; priority: string }) => void;
+  onCreate: (ticket: { subject: string; client: string; priority: string }) => void | Promise<void>;
 }
 
 export default function CreateTicketModal({ isOpen, onClose, onCreate }: CreateTicketModalProps) {
@@ -14,8 +14,8 @@ export default function CreateTicketModal({ isOpen, onClose, onCreate }: CreateT
 
   if (!isOpen) return null;
 
-  const handleSubmit = () => {
-    onCreate({
+  const handleSubmit = async () => {
+    await onCreate({
       subject,
       client,
       priority
@@ -24,7 +24,6 @@ export default function CreateTicketModal({ isOpen, onClose, onCreate }: CreateT
     setSubject('');
     setClient('');
     setPriority('Medium (24h)');
-    onClose();
   };
 
   return (
