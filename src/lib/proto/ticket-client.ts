@@ -39,6 +39,15 @@ const BACKEND_URL =
   process.env.BACKEND_URL ||
   'http://192.168.117.18:3000';
 
+function mapPriorityToProto(priority: string | number | undefined): number {
+  if (typeof priority === 'number') return priority;
+  const normalized = String(priority ?? 'normal').trim().toLowerCase();
+  if (normalized === 'low') return 1;
+  if (normalized === 'high') return 3;
+  if (normalized === 'critical' || normalized === 'urgent') return 4;
+  return 2;
+}
+
 async function refreshAccessToken(): Promise<boolean> {
   return await refreshTokens();
 }
@@ -110,8 +119,9 @@ export async function protoCreateTicket(payload: {
   serviceId?: string;
   title: string;
   description: string;
-  priority: string;
+  priority: string | number;
   attributes: string;
+  assetId?: string;
 }): Promise<{ success: boolean; response?: unknown; error?: string }> {
   const mod = await loadTicketModule();
   if (!mod) {
@@ -126,8 +136,9 @@ export async function protoCreateTicket(payload: {
         serviceId: payload.serviceId,
         title: payload.title,
         description: payload.description,
-        priority: payload.priority,
+        priority: mapPriorityToProto(payload.priority),
         attributes: payload.attributes,
+        assetId: payload.assetId,
       });
       type RpcMethod = (req: unknown) => Promise<unknown>;
       return await (client as unknown as Record<string, RpcMethod>).createTicket(request as unknown);
@@ -136,6 +147,66 @@ export async function protoCreateTicket(payload: {
     return { success: true, response };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Create ticket failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoPreviewSLA(payload: {
+  categoryId: string;
+  serviceId?: string;
+  priority: string | number;
+  orgId: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available. Please sync protos from backend.' };
+  }
+
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.PreviewSLARequestSchema as unknown as DescMessage, {
+        categoryId: payload.categoryId,
+        serviceId: payload.serviceId,
+        priority: mapPriorityToProto(payload.priority),
+        orgId: payload.orgId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).previewSLA(request as unknown);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Preview SLA failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoPreviewPricingRules(payload: {
+  orgId: string;
+  priority: string | number;
+  slaHours: number;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available. Please sync protos from backend.' };
+  }
+
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.PreviewPricingRulesRequestSchema as unknown as DescMessage, {
+        orgId: payload.orgId,
+        priority: mapPriorityToProto(payload.priority),
+        slaHours: payload.slaHours,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).previewPricingRules(request as unknown);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Preview pricing rules failed';
     return { success: false, error: message };
   }
 }

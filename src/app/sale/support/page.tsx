@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Search, Plus, MoreVertical, Paperclip, Send, 
   Clock, CheckCircle2 
@@ -9,6 +10,7 @@ import CreateTicketModal from '@/components/CreateTicketModal';
 
 type ServiceCategory = { id: string; name: string; attributesSchema?: string };
 type ServiceOption = { id: string; name: string; categoryId?: string };
+type AssetOption = { id: string; orgId: string; name: string; serialNumber?: string; model?: string; status?: string };
 type SlaPreview = {
   ticketId: string;
   appliedSource: 'tenant-config' | 'system-default';
@@ -46,10 +48,16 @@ const STATUS_FROM_NUMBER: Record<number, Ticket['status']> = {
 interface Ticket {
   id: string;
   code: string;
+  orgId?: string;
+  categoryId?: string;
+  serviceId?: string;
   title: string;
   client: string;
   status: 'DRAFT' | 'AGREED' | 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
   priority: 'High' | 'Medium' | 'Low' | 'Critical';
+  attributes?: string;
+  slaHours?: number;
+  assetId?: string;
   date: string;
   dueTime?: string;
   slaStatus?: 'Met' | 'Breached' | 'Warning';
@@ -133,6 +141,7 @@ const mockMessages: Message[] = [
 
 export default function SupportTrackingPage() {
   const [tickets, setTickets] = useState<Ticket[]>(mockTickets);
+  const router = useRouter();
   const [selectedTicket, setSelectedTicket] = useState<Ticket>(mockTickets[0]);
   const [search, setSearch] = useState('');
   const [messageInput, setMessageInput] = useState('');
@@ -143,23 +152,208 @@ export default function SupportTrackingPage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [flowMessage, setFlowMessage] = useState('');
+  const [assets, setAssets] = useState<AssetOption[]>([]);
+  const [selectedAssetId, setSelectedAssetId] = useState('');
+  const [loadingAssets, setLoadingAssets] = useState(false);
   const [slaPreview, setSlaPreview] = useState<SlaPreview | null>(null);
   const [pricingPreview, setPricingPreview] = useState<PricingPreview | null>(null);
   const [loadingSlaPreview, setLoadingSlaPreview] = useState(false);
   const [loadingPricingPreview, setLoadingPricingPreview] = useState(false);
+  const [contextOwnerId, setContextOwnerId] = useState('');
+  const [contextClientName, setContextClientName] = useState('');
+  const [contextClientEmail, setContextClientEmail] = useState('');
+  const [contextClientPhone, setContextClientPhone] = useState('');
+  const [isCategoryServiceAutoFilled, setIsCategoryServiceAutoFilled] = useState(false);
 
   const statusOptions: Ticket['status'][] = ['DRAFT', 'AGREED', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
+
+  const selectedCategory = categories.find((category) => category.id === selectedCategoryId);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ownerId = String(params.get('owner_id') ?? '').trim();
+    const clientName = String(params.get('client_name') ?? '').trim();
+    const clientEmail = String(params.get('client_email') ?? '').trim();
+    const clientPhone = String(params.get('client_phone') ?? '').trim();
+    const ticketId = String(params.get('ticket_id') ?? '').trim();
+
+    if (!ownerId && !clientName && !clientEmail && !clientPhone && !ticketId) return;
+
+    setContextOwnerId(ownerId);
+    setContextClientName(clientName);
+    setContextClientEmail(clientEmail);
+    setContextClientPhone(clientPhone);
+    if (clientName) {
+      setSearch(clientName);
+    }
+    const syncCategoryServiceFromTicket = (ticket: Ticket) => {
+      const directCategoryId = String(ticket.categoryId ?? '').trim();
+      const directServiceId = String(ticket.serviceId ?? '').trim();
+      let autoFilled = false;
+      if (directCategoryId) {
+        setSelectedCategoryId(directCategoryId);
+        autoFilled = true;
+      }
+      if (directServiceId) {
+        setSelectedServiceId(directServiceId);
+        autoFilled = true;
+      }
+
+      if (!ticket.attributes) return;
+      try {
+        const parsed = JSON.parse(ticket.attributes) as Record<string, unknown>;
+        const categoryFromAttributes = String(parsed.category_id ?? parsed.categoryId ?? '').trim();
+        const serviceFromAttributes = String(parsed.service_id ?? parsed.serviceId ?? '').trim();
+        if (!directCategoryId && categoryFromAttributes) {
+          setSelectedCategoryId(categoryFromAttributes);
+          autoFilled = true;
+        }
+        if (!directServiceId && serviceFromAttributes) {
+          setSelectedServiceId(serviceFromAttributes);
+          autoFilled = true;
+        }
+      } catch {
+      }
+      setIsCategoryServiceAutoFilled(autoFilled);
+    };
+
+    const hydrateFromTicketId = async () => {
+      if (!ticketId) return;
+
+      const existing = tickets.find((ticket) => ticket.id === ticketId);
+      if (existing) {
+        setSelectedTicket(existing);
+        syncCategoryServiceFromTicket(existing);
+        return;
+      }
+
+      try {
+        const qs = new URLSearchParams({ ticket_id: ticketId });
+        if (ownerId) qs.set('org_id', ownerId);
+
+        const response = await fetch(`/api/sale/tickets?${qs.toString()}`);
+        const json = await response.json().catch(() => ({}));
+
+        if (response.ok && json?.ticket) {
+          const raw = json.ticket as {
+            id?: string;
+            orgId?: string;
+            categoryId?: string;
+            serviceId?: string;
+            title?: string;
+            status?: number;
+            priority?: string;
+            attributes?: string;
+            slaHours?: number;
+            assetId?: string;
+            createdAt?: string;
+          };
+
+          const statusFromNumber: Record<number, Ticket['status']> = {
+            1: 'DRAFT',
+            5: 'AGREED',
+            3: 'OPEN',
+            7: 'IN_PROGRESS',
+            9: 'RESOLVED',
+            10: 'CLOSED',
+          };
+
+          const toPriority = (value?: string): Ticket['priority'] => {
+            const normalized = String(value ?? '').trim().toLowerCase();
+            if (normalized.includes('critical') || normalized === '4') return 'Critical';
+            if (normalized.includes('high') || normalized === '3') return 'High';
+            if (normalized.includes('low') || normalized === '1') return 'Low';
+            return 'Medium';
+          };
+
+          const hydratedTicket: Ticket = {
+            id: String(raw.id ?? ticketId),
+            code: `TICK-${String(raw.id ?? ticketId).slice(-6).toUpperCase()}`,
+            orgId: raw.orgId,
+            categoryId: raw.categoryId,
+            serviceId: raw.serviceId,
+            title: String(raw.title ?? 'UC-2 Ticket'),
+            client: clientName || 'Khách từ CRM',
+            status: statusFromNumber[Number(raw.status ?? 1)] ?? 'DRAFT',
+            priority: toPriority(raw.priority),
+            attributes: raw.attributes,
+            slaHours: raw.slaHours,
+            assetId: raw.assetId,
+            date: String(raw.createdAt ?? new Date().toISOString()).split('T')[0],
+            dueTime: 'N/A',
+          };
+
+          setTickets((prev) => [hydratedTicket, ...prev.filter((ticket) => ticket.id !== hydratedTicket.id)]);
+          setSelectedTicket(hydratedTicket);
+          syncCategoryServiceFromTicket(hydratedTicket);
+          return;
+        }
+      } catch {
+      }
+
+      const projectedTicket: Ticket = {
+        id: ticketId,
+        code: `TICK-${ticketId.slice(-6).toUpperCase()}`,
+        orgId: ownerId || undefined,
+        title: 'UC-2 Ticket (from CRM)',
+        client: clientName || 'Khách từ CRM',
+        status: 'DRAFT',
+        priority: 'Medium',
+        attributes: JSON.stringify({
+          source: 'sale_customers_uc2',
+          owner_id: ownerId || undefined,
+          client_name: clientName || undefined,
+          client_email: clientEmail || undefined,
+          client_phone: clientPhone || undefined,
+        }),
+        date: new Date().toISOString().split('T')[0],
+        dueTime: 'N/A',
+      };
+
+      setTickets((prev) => [projectedTicket, ...prev.filter((ticket) => ticket.id !== ticketId)]);
+      setSelectedTicket(projectedTicket);
+      syncCategoryServiceFromTicket(projectedTicket);
+    };
+
+    void hydrateFromTicketId();
+
+    setFlowMessage(
+      ticketId
+        ? `Đã nhận context khách + ticket_id (${ticketId}) từ CRM. Đang focus ticket vừa tạo cho UC-2.`
+        : 'Đã nhận context khách từ CRM. UC-2 sẽ ưu tiên owner_id này cho ListAssets/Preview*.'
+    );
+  }, []);
+
+  const getTicketOrgId = (ticket: Ticket): string => {
+    const directOrg = String(ticket.orgId ?? '').trim();
+    if (directOrg) return directOrg;
+    if (!ticket.attributes) return '';
+
+    try {
+      const parsed = JSON.parse(ticket.attributes) as Record<string, unknown>;
+      const orgId = parsed.org_id ?? parsed.orgId ?? parsed.owner_id ?? parsed.ownerId;
+      return String(orgId ?? '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const getEffectiveOrgOrOwnerId = (ticket: Ticket): string => {
+    return getTicketOrgId(ticket) || contextOwnerId;
+  };
+
+  const effectiveContextId = selectedTicket ? getEffectiveOrgOrOwnerId(selectedTicket) : contextOwnerId;
+  const hasEffectiveContextId = !!effectiveContextId;
 
   const handleStatusChange = async (ticketId: string, status: Ticket['status']) => {
     setTickets((prev) => prev.map((ticket) => (ticket.id === ticketId ? { ...ticket, status } : ticket)));
     setSelectedTicket((prev) => (prev.id === ticketId ? { ...prev, status } : prev));
 
     try {
-      const response = await fetch('/api/admin/tickets', {
+      const response = await fetch('/api/sale/tickets', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          action: 'update_status',
           ticket_id: ticketId,
           status: TICKET_STATUS_VALUE[status],
         }),
@@ -183,7 +377,7 @@ export default function SupportTrackingPage() {
     try {
       const [categoriesRes, servicesRes] = await Promise.all([
         fetch('/api/admin/catalog/categories?page_size=50'),
-        fetch('/api/admin/catalog/services?page_size=100'),
+        fetch('/api/admin/catalog/services?page_size=100&show_inactive=false'),
       ]);
 
       const categoryJson = await categoriesRes.json();
@@ -207,8 +401,25 @@ export default function SupportTrackingPage() {
 
       setCategories(categoryData);
       setServices(serviceData);
-      if (categoryData.length > 0) setSelectedCategoryId(categoryData[0].id);
-      if (serviceData.length > 0) setSelectedServiceId(serviceData[0].id);
+      if (categoryData.length > 0) {
+        const preferredCategoryId = categoryData.some((item) => item.id === selectedCategoryId)
+          ? selectedCategoryId
+          : categoryData[0].id;
+        setSelectedCategoryId(preferredCategoryId);
+
+        const servicesInCategory = serviceData.filter(
+          (item) => !item.categoryId || item.categoryId === preferredCategoryId
+        );
+        const preferredServiceId = servicesInCategory.some((item) => item.id === selectedServiceId)
+          ? selectedServiceId
+          : (servicesInCategory[0]?.id ?? '');
+        setSelectedServiceId(preferredServiceId);
+      } else if (serviceData.length > 0) {
+        const preferredServiceId = serviceData.some((item) => item.id === selectedServiceId)
+          ? selectedServiceId
+          : serviceData[0].id;
+        setSelectedServiceId(preferredServiceId);
+      }
       setFlowMessage('Đã tải danh mục. Bạn có thể tạo ticket DRAFT theo UC-2.');
     } catch {
       setFlowMessage('Lỗi kết nối khi tải danh mục dịch vụ.');
@@ -248,7 +459,17 @@ export default function SupportTrackingPage() {
           title: data.subject,
           description: `Client: ${data.client}`,
           priority: priorityValue,
-          attributes: JSON.stringify({ source: 'sale_support', client: data.client }),
+          attributes: JSON.stringify({
+            source: 'sale_support',
+            client: data.client,
+            category_id: selectedCategoryId,
+            service_id: selectedServiceId || undefined,
+            owner_id: contextOwnerId || undefined,
+            client_name: contextClientName || data.client,
+            client_email: contextClientEmail || undefined,
+            client_phone: contextClientPhone || undefined,
+          }),
+          asset_id: selectedAssetId || undefined,
         }),
       });
 
@@ -257,17 +478,32 @@ export default function SupportTrackingPage() {
         setFlowMessage(createJson?.error || 'CreateTicket thất bại. Đã fallback local ticket.');
       }
 
-      const responseTicket = createJson?.ticket as { id?: string; status?: number } | undefined;
+      const responseTicket = createJson?.ticket as {
+        id?: string;
+        status?: number;
+        orgId?: string;
+        categoryId?: string;
+        serviceId?: string;
+        attributes?: string;
+        slaHours?: number;
+        assetId?: string;
+      } | undefined;
       const apiId = responseTicket?.id;
       const mappedStatus = responseTicket?.status ? STATUS_FROM_NUMBER[responseTicket.status] : 'DRAFT';
 
       const newTicket: Ticket = {
         id: apiId || `tmp-${Date.now()}`,
         code: apiId ? `TICK-${apiId.slice(-6).toUpperCase()}` : `TICK-${Math.floor(10000 + Math.random() * 90000)}`,
+        orgId: responseTicket?.orgId,
+        categoryId: responseTicket?.categoryId ?? selectedCategoryId,
+        serviceId: responseTicket?.serviceId ?? selectedServiceId,
         title: data.subject,
         client: data.client,
         status: mappedStatus || 'DRAFT',
         priority: data.priority.split(' ')[0] as Ticket['priority'],
+        attributes: responseTicket?.attributes,
+        slaHours: responseTicket?.slaHours,
+        assetId: responseTicket?.assetId,
         date: new Date().toISOString().split('T')[0],
         dueTime: '12:00',
       };
@@ -288,10 +524,18 @@ export default function SupportTrackingPage() {
     const newTicket: Ticket = {
       id: newId,
       code: `TICK-${Math.floor(10000 + Math.random() * 90000)}`, // Random 5-digit code for variety
+      orgId: contextOwnerId || undefined,
       title: data.subject,
       client: data.client,
       status: 'DRAFT',
-    priority: data.priority.split(' ')[0] as Ticket['priority'], // Extract 'Critical' from 'Critical (1h)'
+      priority: data.priority.split(' ')[0] as Ticket['priority'], // Extract 'Critical' from 'Critical (1h)'
+      attributes: JSON.stringify({
+        source: 'sale_support',
+        client: data.client,
+        category_id: selectedCategoryId,
+        service_id: selectedServiceId || undefined,
+        owner_id: contextOwnerId || undefined,
+      }),
       date: new Date().toISOString().split('T')[0],
       // Approximate due time logic based on priority, simplified
       dueTime: '12:00', 
@@ -304,8 +548,9 @@ export default function SupportTrackingPage() {
   };
 
   const handlePreviewSla = async () => {
-    if (!selectedTicket?.id) {
-      setFlowMessage('Không tìm thấy ticket để preview SLA.');
+    const orgId = selectedTicket ? getEffectiveOrgOrOwnerId(selectedTicket) : '';
+    if (!selectedCategoryId || !orgId) {
+      setFlowMessage('Cần category + org_id trước khi gọi PreviewSLA.');
       return;
     }
 
@@ -315,9 +560,10 @@ export default function SupportTrackingPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ticket_id: selectedTicket.id,
+          category_id: selectedCategoryId,
+          service_id: selectedServiceId || undefined,
           priority: selectedTicket.priority.toLowerCase(),
-          org_id: selectedTicket.client.toLowerCase().includes('ltd') ? 'org-enterprise' : '',
+          org_id: orgId,
         }),
       });
 
@@ -337,8 +583,9 @@ export default function SupportTrackingPage() {
   };
 
   const handlePreviewPricingRules = async () => {
-    if (!selectedTicket?.id) {
-      setFlowMessage('Không tìm thấy ticket để preview pricing rules.');
+    const orgId = selectedTicket ? getEffectiveOrgOrOwnerId(selectedTicket) : '';
+    if (!orgId) {
+      setFlowMessage('Thiếu org_id của ticket để gọi PreviewPricingRules.');
       return;
     }
 
@@ -348,10 +595,9 @@ export default function SupportTrackingPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ticket_id: selectedTicket.id,
-          service_id: selectedServiceId || undefined,
+          org_id: orgId,
           priority: selectedTicket.priority.toLowerCase(),
-          status: selectedTicket.status,
+          sla_hours: selectedTicket.slaHours ?? 4,
           base_amount: 1000000,
         }),
       });
@@ -368,6 +614,40 @@ export default function SupportTrackingPage() {
       setFlowMessage('Lỗi kết nối khi gọi PreviewPricingRules.');
     } finally {
       setLoadingPricingPreview(false);
+    }
+  };
+
+  const handleListAssets = async () => {
+    const orgId = selectedTicket ? getEffectiveOrgOrOwnerId(selectedTicket) : '';
+    if (!orgId) {
+      setFlowMessage('Thiếu org_id/owner_id của khách để tra cứu assets.');
+      return;
+    }
+
+    setLoadingAssets(true);
+    try {
+      const params = new URLSearchParams({
+        org_id: orgId,
+        page_size: '20',
+      });
+      const response = await fetch(`/api/sale/assets?${params.toString()}`);
+      const json = await response.json();
+
+      if (!response.ok) {
+        setFlowMessage(json?.error || 'ListAssets thất bại.');
+        return;
+      }
+
+      const assetsData = Array.isArray(json?.assets) ? (json.assets as AssetOption[]) : [];
+      setAssets(assetsData);
+      if (assetsData.length > 0) {
+        setSelectedAssetId(assetsData[0].id);
+      }
+      setFlowMessage(`ListAssets thành công: ${assetsData.length} tài sản.`);
+    } catch {
+      setFlowMessage('Lỗi kết nối khi gọi ListAssets.');
+    } finally {
+      setLoadingAssets(false);
     }
   };
 
@@ -502,25 +782,52 @@ export default function SupportTrackingPage() {
                 ListCategories / ListServices
               </button>
               <button
+                onClick={handleListAssets}
+                disabled={loadingAssets || !hasEffectiveContextId}
+                title={!hasEffectiveContextId ? 'Thiếu owner/org id. Hãy chọn khách từ CRM để prefill context.' : undefined}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-200 text-emerald-700 bg-emerald-50 disabled:opacity-50"
+              >
+                {loadingAssets ? 'Loading assets...' : 'ListAssets'}
+              </button>
+              <button
                 onClick={handlePreviewSla}
-                disabled={loadingSlaPreview}
+                disabled={loadingSlaPreview || !hasEffectiveContextId || !selectedCategoryId}
+                title={!hasEffectiveContextId ? 'Thiếu owner/org id. Hãy chọn khách từ CRM để prefill context.' : !selectedCategoryId ? 'Thiếu category để gọi PreviewSLA.' : undefined}
                 className="px-3 py-1.5 text-xs font-medium rounded-md border border-indigo-200 text-indigo-700 bg-indigo-50 disabled:opacity-50"
               >
                 {loadingSlaPreview ? 'Previewing SLA...' : 'PreviewSLA'}
               </button>
               <button
                 onClick={handlePreviewPricingRules}
-                disabled={loadingPricingPreview}
+                disabled={loadingPricingPreview || !hasEffectiveContextId}
+                title={!hasEffectiveContextId ? 'Thiếu owner/org id. Hãy chọn khách từ CRM để prefill context.' : undefined}
                 className="px-3 py-1.5 text-xs font-medium rounded-md border border-amber-200 text-amber-700 bg-amber-50 disabled:opacity-50"
               >
                 {loadingPricingPreview ? 'Previewing Pricing...' : 'PreviewPricingRules'}
               </button>
+              <button
+                onClick={() => handleStatusChange(selectedTicket.id, 'AGREED')}
+                disabled={selectedTicket.status === 'AGREED'}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-blue-200 text-blue-700 bg-blue-50 disabled:opacity-50"
+              >
+                Chuyển AGREED
+              </button>
             </div>
 
-            <div className="px-6 py-3 border-b border-gray-100 bg-white grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="px-6 py-3 border-b border-gray-100 bg-white grid grid-cols-1 md:grid-cols-3 gap-2">
+              {isCategoryServiceAutoFilled && (
+                <div className="md:col-span-3">
+                  <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                    Auto-filled from Ticket
+                  </span>
+                </div>
+              )}
               <select
                 value={selectedCategoryId}
-                onChange={(e) => setSelectedCategoryId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedCategoryId(e.target.value);
+                  setIsCategoryServiceAutoFilled(false);
+                }}
                 className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm"
               >
                 <option value="">Chọn category</option>
@@ -530,7 +837,10 @@ export default function SupportTrackingPage() {
               </select>
               <select
                 value={selectedServiceId}
-                onChange={(e) => setSelectedServiceId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedServiceId(e.target.value);
+                  setIsCategoryServiceAutoFilled(false);
+                }}
                 className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm"
               >
                 <option value="">Chọn service</option>
@@ -540,7 +850,52 @@ export default function SupportTrackingPage() {
                     <option key={service.id} value={service.id}>{service.name}</option>
                   ))}
               </select>
+              <select
+                value={selectedAssetId}
+                onChange={(e) => setSelectedAssetId(e.target.value)}
+                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="">Chọn asset (ListAssets)</option>
+                {assets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.name}{asset.serialNumber ? ` - ${asset.serialNumber}` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            <div
+              className={`px-6 py-2 border-b border-gray-100 text-xs ${
+                effectiveContextId ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'
+              }`}
+            >
+              <p>
+                <span className="font-semibold">UC-2 Context:</span>{' '}
+                {effectiveContextId ? `owner/org = ${effectiveContextId}` : 'Chưa có owner/org id'}
+              </p>
+              {(contextClientName || contextClientEmail || contextClientPhone) && (
+                <p className={`mt-1 ${effectiveContextId ? 'text-emerald-700' : 'text-red-600'}`}>
+                  Khách từ CRM: {contextClientName || '-'}
+                  {contextClientEmail ? ` | ${contextClientEmail}` : ''}
+                  {contextClientPhone ? ` | ${contextClientPhone}` : ''}
+                </p>
+              )}
+              {!effectiveContextId && (
+                <button
+                  onClick={() => router.push('/sale/customers')}
+                  className="mt-2 inline-flex items-center rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                >
+                  Đi tới CRM & chọn khách
+                </button>
+              )}
+            </div>
+
+            {selectedCategory?.attributesSchema && (
+              <div className="px-6 py-3 border-b border-gray-100 bg-amber-50">
+                <p className="text-xs font-semibold text-amber-800 mb-1">attributes_schema (Discovery)</p>
+                <pre className="whitespace-pre-wrap break-all text-[11px] text-amber-700">{selectedCategory.attributesSchema}</pre>
+              </div>
+            )}
 
             {flowMessage && (
               <div className="px-6 py-2 border-b border-gray-100 bg-blue-50 text-blue-700 text-xs">

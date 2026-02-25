@@ -222,4 +222,45 @@ export async function protoListCustomers(payload: {
   }
 }
 
+export async function protoUpdateCustomerLead(payload: {
+  userId: string;
+  email?: string;
+  phone?: string;
+  fullName?: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  try {
+    const mod = (await import('@buf/nkc_multiservice.bufbuild_es/multiservice/auth/v1/crm_pb.js')) as Record<string, unknown>;
+    const schema = mod.UpdateCustomerLeadRequestSchema;
+
+    if (!schema) {
+      return {
+        success: false,
+        error: 'UpdateCustomerLead proto schema is not available in current generated module.',
+      };
+    }
+
+    const response = await executeWithRefresh(async () => {
+      const client = (await createAuthenticatedCrmClient()) as unknown as Record<string, (req: unknown) => Promise<unknown>>;
+      const method = client.updateCustomerLead;
+
+      if (typeof method !== 'function') {
+        throw new Error('UpdateCustomerLead RPC is not available in current CRM service client.');
+      }
+
+      const request = create(schema as Parameters<typeof create>[0], {
+        userId: payload.userId,
+        email: payload.email,
+        phone: payload.phone,
+        fullName: payload.fullName,
+      });
+
+      return await method(request as unknown);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'UpdateCustomerLead failed' };
+  }
+}
+
 export { OtpChannel };

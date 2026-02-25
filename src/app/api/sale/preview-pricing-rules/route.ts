@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
+import { protoPreviewPricingRules } from '@/lib/proto/ticket-client';
 
 type PreviewPricingRulesRequest = {
-  ticket_id?: string;
+  org_id?: string;
   priority?: string;
-  status?: string;
-  service_id?: string;
+  sla_hours?: number;
   base_amount?: number;
 };
 
@@ -23,48 +23,44 @@ type PreviewPricingRulesResponse = {
   breakdown: PricingRuleBreakdown[];
 };
 
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as PreviewPricingRulesRequest;
-  const ticketId = String(body.ticket_id ?? '').trim();
+  const orgId = String(body.org_id ?? '').trim();
 
-  if (!ticketId) {
-    return NextResponse.json({ error: 'ticket_id is required' }, { status: 400 });
+  if (!orgId) {
+    return NextResponse.json({ error: 'org_id is required' }, { status: 400 });
   }
 
   const priority = String(body.priority ?? 'medium').toLowerCase();
-  const status = String(body.status ?? 'DRAFT').toUpperCase();
+  const slaHours = Number(body.sla_hours ?? 4);
   const baseAmount = Number(body.base_amount ?? 1000000);
 
-  const breakdown: PricingRuleBreakdown[] = [
-    { code: 'BASE', label: 'Giá cơ bản', k: 1, note: 'Base service price' },
-  ];
+  const result = await protoPreviewPricingRules({
+    orgId,
+    priority,
+    slaHours,
+  });
 
-  if (priority === 'critical') {
-    breakdown.push({ code: 'PRIORITY_CRITICAL', label: 'Ưu tiên khẩn', k: 1.4, note: 'Critical service handling' });
-  } else if (priority === 'high') {
-    breakdown.push({ code: 'PRIORITY_HIGH', label: 'Ưu tiên cao', k: 1.2, note: 'High priority handling' });
-  } else if (priority === 'low') {
-    breakdown.push({ code: 'PRIORITY_LOW', label: 'Ưu tiên thấp', k: 0.95, note: 'Low urgency discount' });
+  if (!result.success || !result.response) {
+    return NextResponse.json({ error: result.error || 'PreviewPricingRules failed' }, { status: 500 });
   }
 
-  const hour = new Date().getHours();
-  if (hour < 8 || hour >= 18) {
-    breakdown.push({ code: 'AFTER_HOURS', label: 'Phụ phí ngoài giờ', k: 1.15, note: 'Outside business hours' });
-  }
-
-  if (status === 'AGREED') {
-    breakdown.push({ code: 'CONSULTATION_COMMIT', label: 'Cam kết giải pháp', k: 1.05, note: 'Post-agreement scope lock' });
-  }
-
-  const totalMultiplier = round2(breakdown.reduce((acc, rule) => acc * rule.k, 1));
+  const resp = result.response as Record<string, unknown>;
+  const totalMultiplier = Number(resp.totalMultiplier ?? resp.total_multiplier ?? 1);
+  const breakdownRaw = Array.isArray(resp.breakdown) ? (resp.breakdown as Array<Record<string, unknown>>) : [];
+  const breakdown: PricingRuleBreakdown[] = breakdownRaw.map((rule, idx) => {
+    const k = Number(rule.multiplier ?? 1);
+    return {
+      code: String(rule.category ?? `RULE_${idx + 1}`),
+      label: String(rule.name ?? `Rule ${idx + 1}`),
+      k: Number.isNaN(k) ? 1 : k,
+      note: String(rule.category ?? ''),
+    };
+  });
   const estimatedAmount = Math.round(baseAmount * totalMultiplier);
 
   const response: PreviewPricingRulesResponse = {
-    ticketId,
+    ticketId: orgId,
     baseAmount,
     totalMultiplier,
     estimatedAmount,
