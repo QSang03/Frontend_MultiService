@@ -54,10 +54,13 @@ interface Ticket {
   title: string;
   client: string;
   status: 'DRAFT' | 'AGREED' | 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
-  priority: 'High' | 'Medium' | 'Low' | 'Critical';
+  priority: 'High' | 'Medium' | 'Low' | 'Urgent' | 'Critical';
   attributes?: string;
   slaHours?: number;
   assetId?: string;
+  createdAt?: string;
+  targetResponseAt?: string;
+  targetResolutionAt?: string;
   date: string;
   dueTime?: string;
   slaStatus?: 'Met' | 'Breached' | 'Warning';
@@ -72,40 +75,6 @@ interface Message {
   time: string;
   isMe?: boolean;
 }
-
-const mockTickets: Ticket[] = [
-  {
-    id: '1',
-    code: 'TICK-992',
-    title: 'Server Downtime - Critical',
-    client: 'TechSolutions Ltd',
-    status: 'IN_PROGRESS',
-    priority: 'Critical',
-    date: '2026-02-09',
-    dueTime: '16:35',
-    assignee: 'DevOps Team A',
-  },
-  {
-    id: '2',
-    code: 'TICK-885',
-    title: 'Laptop Battery Replacement',
-    client: 'Nguyen Van A',
-    status: 'AGREED',
-    priority: 'Medium',
-    date: '2026-02-09',
-    dueTime: '15:35',
-  },
-  {
-    id: '3',
-    code: 'TICK-771',
-    title: 'Office WiFi Setup',
-    client: 'StartUp Alpha',
-    status: 'RESOLVED',
-    priority: 'High',
-    date: '2026-02-08',
-    slaStatus: 'Met',
-  },
-];
 
 const mockMessages: Message[] = [
   {
@@ -140,19 +109,23 @@ const mockMessages: Message[] = [
 ];
 
 export default function SupportTrackingPage() {
-  const [tickets, setTickets] = useState<Ticket[]>(mockTickets);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   const router = useRouter();
-  const [selectedTicket, setSelectedTicket] = useState<Ticket>(mockTickets[0]);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | Ticket['status']>('ALL');
+  const [ticketNextPageToken, setTicketNextPageToken] = useState('');
+  const [loadingTickets, setLoadingTickets] = useState(false);
+  const [loadingMoreTickets, setLoadingMoreTickets] = useState(false);
   const [messageInput, setMessageInput] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [loadingDiscovery, setLoadingDiscovery] = useState(false);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
-  const [services, setServices] = useState<ServiceOption[]>([]);
+  const [, setServices] = useState<ServiceOption[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [flowMessage, setFlowMessage] = useState('');
-  const [assets, setAssets] = useState<AssetOption[]>([]);
+  const [, setAssets] = useState<AssetOption[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState('');
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [slaPreview, setSlaPreview] = useState<SlaPreview | null>(null);
@@ -163,12 +136,200 @@ export default function SupportTrackingPage() {
   const [contextClientName, setContextClientName] = useState('');
   const [contextClientEmail, setContextClientEmail] = useState('');
   const [contextClientPhone, setContextClientPhone] = useState('');
-  const [isCategoryServiceAutoFilled, setIsCategoryServiceAutoFilled] = useState(false);
 
   const statusOptions: Ticket['status'][] = ['DRAFT', 'AGREED', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
 
-  const selectedCategory = categories.find((category) => category.id === selectedCategoryId);
+  const toPriorityLabel = (value: unknown): Ticket['priority'] => {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (normalized.includes('critical') || normalized === '5') return 'Critical';
+    if (normalized.includes('urgent') || normalized === '4') return 'Urgent';
+    if (normalized.includes('high') || normalized === '3') return 'High';
+    if (normalized.includes('low') || normalized === '1') return 'Low';
+    return 'Medium';
+  };
 
+  const toTicketStatus = (value: unknown): Ticket['status'] => {
+    if (typeof value === 'number') {
+      return STATUS_FROM_NUMBER[value] ?? 'DRAFT';
+    }
+    const numeric = Number(value);
+    if (!Number.isNaN(numeric)) {
+      return STATUS_FROM_NUMBER[numeric] ?? 'DRAFT';
+    }
+    const normalized = String(value ?? '').trim().toUpperCase();
+    if (normalized === 'AGREED' || normalized === 'OPEN' || normalized === 'IN_PROGRESS' || normalized === 'RESOLVED' || normalized === 'CLOSED') {
+      return normalized;
+    }
+    return 'DRAFT';
+  };
+
+  const parseClientFromAttributes = (attributes?: string): string | undefined => {
+    if (!attributes) return undefined;
+    try {
+      const parsed = JSON.parse(attributes) as Record<string, unknown>;
+      const clientName = parsed.client_name ?? parsed.clientName ?? parsed.client;
+      const value = String(clientName ?? '').trim();
+      return value || undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const formatSlaTargetTime = (raw: { targetResolutionAt?: string; createdAt?: string; slaHours?: number }): string => {
+    const resolutionRaw = String(raw.targetResolutionAt ?? '').trim();
+    if (resolutionRaw) {
+      const resolution = new Date(resolutionRaw);
+      if (!Number.isNaN(resolution.getTime())) {
+        return resolution.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+    }
+
+    const createdRaw = String(raw.createdAt ?? '').trim();
+    const hours = Number(raw.slaHours ?? 0);
+    if (createdRaw && Number.isFinite(hours) && hours > 0) {
+      const created = new Date(createdRaw);
+      if (!Number.isNaN(created.getTime())) {
+        const fallback = new Date(created.getTime() + hours * 60 * 60 * 1000);
+        return fallback.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+    }
+
+    return 'N/A';
+  };
+
+  const mapApiTicketToUi = (raw: Record<string, unknown>, fallbackClient?: string): Ticket => {
+    const id = String(raw.id ?? '');
+    const title = String(raw.title ?? 'Untitled Ticket');
+    const attributes = raw.attributes == null ? undefined : String(raw.attributes);
+    const parsedClient = parseClientFromAttributes(attributes);
+    const createdAtRaw = String(raw.createdAt ?? raw.created_at ?? '').trim();
+    const targetResponseAtRaw = String(raw.targetResponseAt ?? raw.target_response_at ?? '').trim();
+    const targetResolutionAtRaw = String(raw.targetResolutionAt ?? raw.target_resolution_at ?? '').trim();
+    const slaHours = raw.slaHours == null ? undefined : Number(raw.slaHours);
+    const createdDate = createdAtRaw ? new Date(createdAtRaw) : new Date();
+    const date = Number.isNaN(createdDate.getTime()) ? new Date().toISOString().split('T')[0] : createdDate.toISOString().split('T')[0];
+    const dueTime = formatSlaTargetTime({
+      targetResolutionAt: targetResolutionAtRaw || undefined,
+      createdAt: createdAtRaw || undefined,
+      slaHours,
+    });
+
+    return {
+      id,
+      code: id ? `TICK-${id.slice(-6).toUpperCase()}` : `TICK-${Math.floor(10000 + Math.random() * 90000)}`,
+      orgId: raw.orgId == null ? undefined : String(raw.orgId),
+      categoryId: raw.categoryId == null ? undefined : String(raw.categoryId),
+      serviceId: raw.serviceId == null ? undefined : String(raw.serviceId),
+      title,
+      client: parsedClient || fallbackClient || 'Khách hàng',
+      status: toTicketStatus(raw.status),
+      priority: toPriorityLabel(raw.priority),
+      attributes,
+      slaHours,
+      assetId: raw.assetId == null ? undefined : String(raw.assetId),
+      createdAt: createdAtRaw || undefined,
+      targetResponseAt: targetResponseAtRaw || undefined,
+      targetResolutionAt: targetResolutionAtRaw || undefined,
+      date,
+      dueTime,
+    };
+  };
+
+  const getTicketCategoryId = (ticket: Ticket): string => {
+    const direct = String(ticket.categoryId ?? '').trim();
+    if (direct) return direct;
+    if (!ticket.attributes) return '';
+    try {
+      const parsed = JSON.parse(ticket.attributes) as Record<string, unknown>;
+      return String(parsed.category_id ?? parsed.categoryId ?? '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const getTicketServiceId = (ticket: Ticket): string => {
+    const direct = String(ticket.serviceId ?? '').trim();
+    if (direct) return direct;
+    if (!ticket.attributes) return '';
+    try {
+      const parsed = JSON.parse(ticket.attributes) as Record<string, unknown>;
+      return String(parsed.service_id ?? parsed.serviceId ?? '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const effectiveSelectedCategoryId = selectedTicket ? getTicketCategoryId(selectedTicket) || selectedCategoryId : selectedCategoryId;
+  const selectedCategory = categories.find((category) => category.id === effectiveSelectedCategoryId);
+
+  const loadTicketsPage = async (opts?: { pageToken?: string; append?: boolean; orgId?: string; status?: 'ALL' | Ticket['status'] }) => {
+    const pageToken = opts?.pageToken ?? '';
+    const append = Boolean(opts?.append);
+    const orgId = String(opts?.orgId ?? contextOwnerId ?? '').trim();
+    const status = opts?.status ?? statusFilter;
+
+    if (append) {
+      setLoadingMoreTickets(true);
+    } else {
+      setLoadingTickets(true);
+    }
+
+    try {
+      const params = new URLSearchParams({
+        page_size: '20',
+        page_token: pageToken,
+      });
+      if (orgId) {
+        params.set('org_id', orgId);
+      }
+      if (status !== 'ALL') {
+        params.set('status', status);
+      }
+
+      const response = await fetch(`/api/sale/tickets?${params.toString()}`);
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setFlowMessage(json?.error || 'Không tải được danh sách tickets.');
+        return;
+      }
+
+      const listRaw = Array.isArray(json?.tickets) ? (json.tickets as Record<string, unknown>[]) : [];
+      const incoming = listRaw.map((item) => mapApiTicketToUi(item, contextClientName || undefined));
+      setTicketNextPageToken(String(json?.next_page_token ?? json?.nextPageToken ?? ''));
+
+      setTickets((prev) => {
+        if (!append) {
+          return incoming;
+        }
+        const map = new Map<string, Ticket>();
+        prev.forEach((ticket) => map.set(ticket.id, ticket));
+        incoming.forEach((ticket) => map.set(ticket.id, ticket));
+        return Array.from(map.values());
+      });
+
+      setSelectedTicket((prev) => {
+        if (prev) {
+          const matchedIncoming = incoming.find((item) => item.id === prev.id);
+          if (matchedIncoming) {
+            return matchedIncoming;
+          }
+          const stillExistsInCurrentList = append && tickets.some((item) => item.id === prev.id);
+          if (stillExistsInCurrentList) return prev;
+        }
+        return incoming[0] ?? prev;
+      });
+    } catch {
+      setFlowMessage('Lỗi kết nối khi tải danh sách tickets.');
+    } finally {
+      if (append) {
+        setLoadingMoreTickets(false);
+      } else {
+        setLoadingTickets(false);
+      }
+    }
+  };
+
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ownerId = String(params.get('owner_id') ?? '').trim();
@@ -189,14 +350,11 @@ export default function SupportTrackingPage() {
     const syncCategoryServiceFromTicket = (ticket: Ticket) => {
       const directCategoryId = String(ticket.categoryId ?? '').trim();
       const directServiceId = String(ticket.serviceId ?? '').trim();
-      let autoFilled = false;
       if (directCategoryId) {
         setSelectedCategoryId(directCategoryId);
-        autoFilled = true;
       }
       if (directServiceId) {
         setSelectedServiceId(directServiceId);
-        autoFilled = true;
       }
 
       if (!ticket.attributes) return;
@@ -206,15 +364,12 @@ export default function SupportTrackingPage() {
         const serviceFromAttributes = String(parsed.service_id ?? parsed.serviceId ?? '').trim();
         if (!directCategoryId && categoryFromAttributes) {
           setSelectedCategoryId(categoryFromAttributes);
-          autoFilled = true;
         }
         if (!directServiceId && serviceFromAttributes) {
           setSelectedServiceId(serviceFromAttributes);
-          autoFilled = true;
         }
       } catch {
       }
-      setIsCategoryServiceAutoFilled(autoFilled);
     };
 
     const hydrateFromTicketId = async () => {
@@ -247,41 +402,11 @@ export default function SupportTrackingPage() {
             slaHours?: number;
             assetId?: string;
             createdAt?: string;
+            targetResponseAt?: string;
+            targetResolutionAt?: string;
           };
 
-          const statusFromNumber: Record<number, Ticket['status']> = {
-            1: 'DRAFT',
-            5: 'AGREED',
-            3: 'OPEN',
-            7: 'IN_PROGRESS',
-            9: 'RESOLVED',
-            10: 'CLOSED',
-          };
-
-          const toPriority = (value?: string): Ticket['priority'] => {
-            const normalized = String(value ?? '').trim().toLowerCase();
-            if (normalized.includes('critical') || normalized === '4') return 'Critical';
-            if (normalized.includes('high') || normalized === '3') return 'High';
-            if (normalized.includes('low') || normalized === '1') return 'Low';
-            return 'Medium';
-          };
-
-          const hydratedTicket: Ticket = {
-            id: String(raw.id ?? ticketId),
-            code: `TICK-${String(raw.id ?? ticketId).slice(-6).toUpperCase()}`,
-            orgId: raw.orgId,
-            categoryId: raw.categoryId,
-            serviceId: raw.serviceId,
-            title: String(raw.title ?? 'UC-2 Ticket'),
-            client: clientName || 'Khách từ CRM',
-            status: statusFromNumber[Number(raw.status ?? 1)] ?? 'DRAFT',
-            priority: toPriority(raw.priority),
-            attributes: raw.attributes,
-            slaHours: raw.slaHours,
-            assetId: raw.assetId,
-            date: String(raw.createdAt ?? new Date().toISOString()).split('T')[0],
-            dueTime: 'N/A',
-          };
+          const hydratedTicket = mapApiTicketToUi(raw as unknown as Record<string, unknown>, clientName || undefined);
 
           setTickets((prev) => [hydratedTicket, ...prev.filter((ticket) => ticket.id !== hydratedTicket.id)]);
           setSelectedTicket(hydratedTicket);
@@ -315,6 +440,7 @@ export default function SupportTrackingPage() {
       syncCategoryServiceFromTicket(projectedTicket);
     };
 
+    void loadTicketsPage({ pageToken: '', append: false, orgId: ownerId, status: statusFilter });
     void hydrateFromTicketId();
 
     setFlowMessage(
@@ -323,6 +449,38 @@ export default function SupportTrackingPage() {
         : 'Đã nhận context khách từ CRM. UC-2 sẽ ưu tiên owner_id này cho ListAssets/Preview*.'
     );
   }, []);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (tickets.length === 0 && !loadingTickets) {
+      void loadTicketsPage({ pageToken: '', append: false, orgId: contextOwnerId || undefined, status: statusFilter });
+    }
+  }, [contextOwnerId]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    setTicketNextPageToken('');
+    void loadTicketsPage({ pageToken: '', append: false, orgId: contextOwnerId || undefined, status: statusFilter });
+  }, [statusFilter]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  const handleLoadMoreTickets = async () => {
+    if (!ticketNextPageToken || loadingMoreTickets) return;
+    await loadTicketsPage({ pageToken: ticketNextPageToken, append: true, orgId: contextOwnerId || undefined, status: statusFilter });
+  };
+
+  const handleSelectTicket = (ticket: Ticket) => {
+    setSelectedTicket(ticket);
+    setFlowMessage('');
+    setSlaPreview(null);
+    setPricingPreview(null);
+    setCategories([]);
+    setServices([]);
+    setAssets([]);
+    setSelectedAssetId('');
+  };
 
   const getTicketOrgId = (ticket: Ticket): string => {
     const directOrg = String(ticket.orgId ?? '').trim();
@@ -347,7 +505,7 @@ export default function SupportTrackingPage() {
 
   const handleStatusChange = async (ticketId: string, status: Ticket['status']) => {
     setTickets((prev) => prev.map((ticket) => (ticket.id === ticketId ? { ...ticket, status } : ticket)));
-    setSelectedTicket((prev) => (prev.id === ticketId ? { ...prev, status } : prev));
+    setSelectedTicket((prev) => (prev && prev.id === ticketId ? { ...prev, status } : prev));
 
     try {
       const response = await fetch('/api/sale/tickets', {
@@ -441,6 +599,12 @@ export default function SupportTrackingPage() {
       return;
     }
 
+    const customerId = (contextOwnerId || (selectedTicket ? getEffectiveOrgOrOwnerId(selectedTicket) : '')).trim();
+    if (!customerId) {
+      setFlowMessage('Thiếu customer_id. Hãy chọn khách từ CRM trước khi CreateTicket.');
+      return;
+    }
+
     const priorityValue = data.priority.toLowerCase().includes('critical')
       ? 'critical'
       : data.priority.toLowerCase().includes('high')
@@ -454,6 +618,7 @@ export default function SupportTrackingPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          customer_id: customerId,
           category_id: selectedCategoryId,
           service_id: selectedServiceId || undefined,
           title: data.subject,
@@ -548,8 +713,11 @@ export default function SupportTrackingPage() {
   };
 
   const handlePreviewSla = async () => {
+    if (!selectedTicket) return;
     const orgId = selectedTicket ? getEffectiveOrgOrOwnerId(selectedTicket) : '';
-    if (!selectedCategoryId || !orgId) {
+    const categoryId = getTicketCategoryId(selectedTicket) || selectedCategoryId;
+    const serviceId = getTicketServiceId(selectedTicket) || selectedServiceId;
+    if (!categoryId || !orgId) {
       setFlowMessage('Cần category + org_id trước khi gọi PreviewSLA.');
       return;
     }
@@ -560,8 +728,8 @@ export default function SupportTrackingPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          category_id: selectedCategoryId,
-          service_id: selectedServiceId || undefined,
+          category_id: categoryId,
+          service_id: serviceId || undefined,
           priority: selectedTicket.priority.toLowerCase(),
           org_id: orgId,
         }),
@@ -583,6 +751,7 @@ export default function SupportTrackingPage() {
   };
 
   const handlePreviewPricingRules = async () => {
+    if (!selectedTicket) return;
     const orgId = selectedTicket ? getEffectiveOrgOrOwnerId(selectedTicket) : '';
     if (!orgId) {
       setFlowMessage('Thiếu org_id của ticket để gọi PreviewPricingRules.');
@@ -618,6 +787,7 @@ export default function SupportTrackingPage() {
   };
 
   const handleListAssets = async () => {
+    if (!selectedTicket) return;
     const orgId = selectedTicket ? getEffectiveOrgOrOwnerId(selectedTicket) : '';
     if (!orgId) {
       setFlowMessage('Thiếu org_id/owner_id của khách để tra cứu assets.');
@@ -675,13 +845,29 @@ export default function SupportTrackingPage() {
                     className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
             </div>
+            <div className="mt-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as 'ALL' | Ticket['status'])}
+                className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="ALL">All Status</option>
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </div>
         </div>
         
         <div className="flex-1 overflow-y-auto">
-            {filteredTickets.map(ticket => (
+            {loadingTickets && tickets.length === 0 ? (
+              <div className="p-4 text-sm text-gray-500">Đang tải danh sách tickets...</div>
+            ) : filteredTickets.length === 0 ? (
+              <div className="p-4 text-sm text-gray-500">Chưa có ticket nào.</div>
+            ) : filteredTickets.map(ticket => (
                 <div 
                     key={ticket.id}
-                    onClick={() => setSelectedTicket(ticket)}
+                onClick={() => handleSelectTicket(ticket)}
                     className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
                         selectedTicket?.id === ticket.id ? 'bg-blue-50/50 border-l-4 border-l-blue-600' : 'border-l-4 border-l-transparent'
                     }`}
@@ -706,6 +892,7 @@ export default function SupportTrackingPage() {
                          {ticket.priority && (
                              <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded border ${
                                 ticket.priority === 'Critical' ? 'text-red-600 bg-red-50 border-red-100' :
+                              ticket.priority === 'Urgent' ? 'text-rose-600 bg-rose-50 border-rose-100' :
                                 ticket.priority === 'High' ? 'text-orange-600 bg-orange-50 border-orange-100' :
                                 'text-gray-600 bg-gray-50 border-gray-200'
                              }`}>
@@ -722,6 +909,16 @@ export default function SupportTrackingPage() {
                     </div>
                 </div>
             ))}
+        </div>
+
+        <div className="border-t border-gray-100 p-3 bg-white flex justify-center">
+          <button
+            onClick={() => void handleLoadMoreTickets()}
+            disabled={!ticketNextPageToken || loadingMoreTickets || loadingTickets}
+            className="px-4 py-2 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loadingMoreTickets ? 'Loading...' : ticketNextPageToken ? 'Load more tickets' : 'No more tickets'}
+          </button>
         </div>
       </div>
 
@@ -766,9 +963,9 @@ export default function SupportTrackingPage() {
                     </select>
                 </div>
                 <div className="col-span-2">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">SLA Target</label>
-                    <div className="inline-flex items-center justify-center px-4 py-1.5 bg-red-50 text-red-600 font-bold text-sm rounded-lg border border-red-100 w-full">
-                        {selectedTicket.dueTime || 'N/A'}
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Priority</label>
+                  <div className="inline-flex items-center justify-center px-4 py-1.5 bg-red-50 text-red-600 font-bold text-sm rounded-lg border border-red-100 w-full">
+                    {selectedTicket.priority}
                     </div>
                 </div>
             </div>
@@ -791,8 +988,18 @@ export default function SupportTrackingPage() {
               </button>
               <button
                 onClick={handlePreviewSla}
-                disabled={loadingSlaPreview || !hasEffectiveContextId || !selectedCategoryId}
-                title={!hasEffectiveContextId ? 'Thiếu owner/org id. Hãy chọn khách từ CRM để prefill context.' : !selectedCategoryId ? 'Thiếu category để gọi PreviewSLA.' : undefined}
+                disabled={
+                  loadingSlaPreview ||
+                  !hasEffectiveContextId ||
+                  !(selectedTicket ? getTicketCategoryId(selectedTicket) || selectedCategoryId : selectedCategoryId)
+                }
+                title={
+                  !hasEffectiveContextId
+                    ? 'Thiếu owner/org id. Hãy chọn khách từ CRM để prefill context.'
+                    : !(selectedTicket ? getTicketCategoryId(selectedTicket) || selectedCategoryId : selectedCategoryId)
+                      ? 'Thiếu category để gọi PreviewSLA.'
+                      : undefined
+                }
                 className="px-3 py-1.5 text-xs font-medium rounded-md border border-indigo-200 text-indigo-700 bg-indigo-50 disabled:opacity-50"
               >
                 {loadingSlaPreview ? 'Previewing SLA...' : 'PreviewSLA'}
@@ -812,56 +1019,6 @@ export default function SupportTrackingPage() {
               >
                 Chuyển AGREED
               </button>
-            </div>
-
-            <div className="px-6 py-3 border-b border-gray-100 bg-white grid grid-cols-1 md:grid-cols-3 gap-2">
-              {isCategoryServiceAutoFilled && (
-                <div className="md:col-span-3">
-                  <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
-                    Auto-filled from Ticket
-                  </span>
-                </div>
-              )}
-              <select
-                value={selectedCategoryId}
-                onChange={(e) => {
-                  setSelectedCategoryId(e.target.value);
-                  setIsCategoryServiceAutoFilled(false);
-                }}
-                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Chọn category</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>{category.name}</option>
-                ))}
-              </select>
-              <select
-                value={selectedServiceId}
-                onChange={(e) => {
-                  setSelectedServiceId(e.target.value);
-                  setIsCategoryServiceAutoFilled(false);
-                }}
-                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Chọn service</option>
-                {services
-                  .filter((service) => !selectedCategoryId || !service.categoryId || service.categoryId === selectedCategoryId)
-                  .map((service) => (
-                    <option key={service.id} value={service.id}>{service.name}</option>
-                  ))}
-              </select>
-              <select
-                value={selectedAssetId}
-                onChange={(e) => setSelectedAssetId(e.target.value)}
-                className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              >
-                <option value="">Chọn asset (ListAssets)</option>
-                {assets.map((asset) => (
-                  <option key={asset.id} value={asset.id}>
-                    {asset.name}{asset.serialNumber ? ` - ${asset.serialNumber}` : ''}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <div

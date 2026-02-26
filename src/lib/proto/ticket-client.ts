@@ -115,6 +115,7 @@ async function createAuthenticatedTicketClient() {
 
 // CreateTicket
 export async function protoCreateTicket(payload: {
+  customerId: string;
   categoryId: string;
   serviceId?: string;
   title: string;
@@ -131,6 +132,24 @@ export async function protoCreateTicket(payload: {
   try {
     const response = await executeWithRefresh(async () => {
       const client = await createAuthenticatedTicketClient();
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      const methods = client as unknown as Record<string, RpcMethod>;
+      const useSaleCreate = typeof methods.saleCreateTicket === 'function';
+
+      if (useSaleCreate) {
+        const request = create(mod.SaleCreateTicketRequestSchema as unknown as DescMessage, {
+          customerId: payload.customerId,
+          categoryId: payload.categoryId,
+          serviceId: payload.serviceId,
+          title: payload.title,
+          description: payload.description,
+          priority: mapPriorityToProto(payload.priority),
+          attributes: payload.attributes,
+          assetId: payload.assetId,
+        });
+        return await methods.saleCreateTicket(request as unknown);
+      }
+
       const request = create(mod.CreateTicketRequestSchema as unknown as DescMessage, {
         categoryId: payload.categoryId,
         serviceId: payload.serviceId,
@@ -140,8 +159,7 @@ export async function protoCreateTicket(payload: {
         attributes: payload.attributes,
         assetId: payload.assetId,
       });
-      type RpcMethod = (req: unknown) => Promise<unknown>;
-      return await (client as unknown as Record<string, RpcMethod>).createTicket(request as unknown);
+      return await methods.createTicket(request as unknown);
     });
 
     return { success: true, response };

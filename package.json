@@ -14,7 +14,7 @@
     "proto:sync:watch": "node scripts/sync-proto.js --watch"
   },
   "dependencies": {
-    "@buf/nkc_multiservice.bufbuild_es": "^2.11.0-20260225093429-47e4b373c93f.1",
+    "@buf/nkc_multiservice.bufbuild_es": "^2.11.0-20260226043124-deb4c2f91e0f.1",
     "@bufbuild/protobuf": "^2.11.0",
     "@connectrpc/connect": "^2.1.1",
     "@connectrpc/connect-node": "^2.1.1",
@@ -37,14 +37,18 @@
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.63.0",
+    "@eslint-community/eslint-utils": "^4.9.1",
     "@protobuf-ts/plugin": "^2.11.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
     "babel-plugin-react-compiler": "1.0.0",
-    "eslint": "^8.45.0",
+    "eslint": "^9.39.3",
     "eslint-config-next": "^16.1.6",
+    "eslint-plugin-react": "^7.37.5",
     "tailwindcss": "^4",
     "ts-proto": "^2.10.1",
     "typescript": "^5.9.3",

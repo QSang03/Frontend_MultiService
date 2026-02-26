@@ -13,6 +13,8 @@ type TicketDto = {
   slaHours?: number;
   assetId?: string;
   createdAt?: string;
+  targetResponseAt?: string;
+  targetResolutionAt?: string;
 };
 
 function mapPriorityToProto(priority: unknown): number {
@@ -61,6 +63,8 @@ function normalizeTicket(raw: unknown): TicketDto {
     slaHours: Number(obj.slaHours ?? 0) || undefined,
     assetId: obj.assetId == null ? undefined : String(obj.assetId),
     createdAt: timestampToIso(obj.createdAt ?? obj.created_at),
+    targetResponseAt: timestampToIso(obj.targetResponseAt ?? obj.target_response_at),
+    targetResolutionAt: timestampToIso(obj.targetResolutionAt ?? obj.target_resolution_at),
   };
 }
 
@@ -119,6 +123,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await req.json();
+  const customerId = body.customer_id ?? body.customerId ?? body.owner_id ?? body.ownerId;
   const categoryId = body.category_id ?? body.categoryId;
   const serviceId = body.service_id ?? body.serviceId;
   const title = body.title;
@@ -127,11 +132,12 @@ export async function POST(req: Request) {
   const attributes = body.attributes ?? '{}';
   const assetId = body.asset_id ?? body.assetId;
 
-  if (!categoryId || !title) {
-    return NextResponse.json({ error: 'category_id and title are required' }, { status: 400 });
+  if (!customerId || !categoryId || !title) {
+    return NextResponse.json({ error: 'customer_id, category_id and title are required' }, { status: 400 });
   }
 
   const result = await protoCreateTicket({
+    customerId: String(customerId),
     categoryId: String(categoryId),
     serviceId: serviceId ? String(serviceId) : undefined,
     title: String(title),

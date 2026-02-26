@@ -6,7 +6,6 @@ import {
   Users,
   Search,
   Plus,
-  Phone,
   Mail,
   Building,
   Filter,
@@ -52,7 +51,15 @@ type Uc2Service = {
 };
 
 type Uc2Schema = {
-  properties?: Record<string, { type?: string; title?: string; description?: string }>;
+  properties?: Record<
+    string,
+    {
+      type?: string;
+      title?: string;
+      description?: string;
+      enum?: Array<string | number | boolean>;
+    }
+  >;
   required?: string[];
 };
 
@@ -156,6 +163,48 @@ export default function SaleCustomersPage() {
     }
   };
 
+  const convertUc2AttributeValue = (
+    fieldKey: string,
+    rawValue: string,
+    fieldSchema?: { type?: string; enum?: Array<string | number | boolean> }
+  ): { ok: true; value: string | number | boolean } | { ok: false; error: string } => {
+    const trimmed = rawValue.trim();
+    const enumValues = Array.isArray(fieldSchema?.enum) ? fieldSchema.enum : [];
+
+    if (enumValues.length > 0) {
+      const matched = enumValues.find((item) => String(item) === trimmed);
+      if (matched === undefined) {
+        return { ok: false, error: `${fieldKey} không hợp lệ. Chỉ chấp nhận: ${enumValues.join(', ')}` };
+      }
+      return { ok: true, value: matched };
+    }
+
+    const fieldType = String(fieldSchema?.type ?? 'string').toLowerCase();
+    if (fieldType === 'number') {
+      const num = Number(trimmed);
+      if (Number.isNaN(num)) {
+        return { ok: false, error: `${fieldKey} phải là số.` };
+      }
+      return { ok: true, value: num };
+    }
+
+    if (fieldType === 'integer') {
+      const num = Number(trimmed);
+      if (!Number.isInteger(num)) {
+        return { ok: false, error: `${fieldKey} phải là số nguyên.` };
+      }
+      return { ok: true, value: num };
+    }
+
+    if (fieldType === 'boolean') {
+      if (trimmed === 'true') return { ok: true, value: true };
+      if (trimmed === 'false') return { ok: true, value: false };
+      return { ok: false, error: `${fieldKey} phải là true hoặc false.` };
+    }
+
+    return { ok: true, value: trimmed };
+  };
+
   const fetchLeadPage = async (pageToken = '', append = false, searchTerm = '') => {
     const params = new URLSearchParams({
       page_size: '20',
@@ -209,6 +258,7 @@ export default function SaleCustomersPage() {
     setIsAddLeadModalOpen(true);
   };
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     let mounted = true;
 
@@ -233,6 +283,7 @@ export default function SaleCustomersPage() {
       mounted = false;
     };
   }, []);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
     if (identityResult?.caseType !== 'C') {
@@ -404,6 +455,7 @@ export default function SaleCustomersPage() {
     }
 
     const schema = parseUc2Schema();
+    const schemaProperties = schema.properties ?? {};
     const required = Array.isArray(schema.required) ? schema.required : [];
     for (const field of required) {
       if (!String(uc2Attributes[field] ?? '').trim()) {
@@ -415,26 +467,42 @@ export default function SaleCustomersPage() {
     setUc2Error('');
     setSubmittingUc2Ticket(true);
     try {
-      const attributesPayload = {
-        owner_id: selectedClient.id,
-        client_name: selectedClient.name,
-        client_email: selectedClient.email,
-        client_phone: selectedClient.phone,
-        category_id: uc2CategoryId,
-        service_id: uc2ServiceId || undefined,
-        attributes: uc2Attributes,
-      };
+      const schemaAttributesOnly = Object.entries(schemaProperties).reduce<Record<string, string | number | boolean>>(
+        (acc, [key, fieldSchema]) => {
+          const normalized = String(uc2Attributes[key] ?? '').trim();
+          if (!normalized) {
+            return acc;
+          }
+
+          const converted = convertUc2AttributeValue(key, normalized, fieldSchema);
+          if (!converted.ok) {
+            throw new Error(converted.error);
+          }
+          acc[key] = converted.value;
+          return acc;
+        },
+        {}
+      );
+
+      for (const field of required) {
+        if (!(field in schemaAttributesOnly)) {
+          setUc2Error(`Thiếu thông tin bắt buộc: ${field}`);
+          setSubmittingUc2Ticket(false);
+          return;
+        }
+      }
 
       const response = await fetch('/api/sale/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          customer_id: selectedClient.id,
           category_id: uc2CategoryId,
           service_id: uc2ServiceId || undefined,
           title: uc2Subject.trim(),
           description: `UC-2 Consultation for ${selectedClient.name}`,
           priority: uc2Priority,
-          attributes: JSON.stringify(attributesPayload),
+          attributes: JSON.stringify(schemaAttributesOnly),
         }),
       });
 
@@ -458,8 +526,9 @@ export default function SaleCustomersPage() {
         params.set('ticket_id', createdTicketId);
       }
       router.push(`/sale/support?${params.toString()}`);
-    } catch {
-      setUc2Error('Lỗi kết nối CreateTicket UC-2.');
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : 'Lỗi kết nối CreateTicket UC-2.';
+      setUc2Error(message);
     } finally {
       setSubmittingUc2Ticket(false);
     }
@@ -1563,23 +1632,61 @@ export default function SaleCustomersPage() {
                     {Object.entries(parseUc2Schema().properties ?? {}).map(([fieldKey, fieldSchema]) => {
                       const required = (parseUc2Schema().required ?? []).includes(fieldKey);
                       const label = fieldSchema.title?.trim() || fieldKey;
+                      const fieldType = String(fieldSchema.type ?? 'string').toLowerCase();
+                      const enumValues = Array.isArray(fieldSchema.enum) ? fieldSchema.enum : [];
                       return (
                         <div key={fieldKey} className="space-y-1">
                           <label className="block text-xs font-medium text-gray-600">
                             {label} {required ? <span className="text-red-500">*</span> : null}
                           </label>
-                          <input
-                            type="text"
-                            value={String(uc2Attributes[fieldKey] ?? '')}
-                            onChange={(event) =>
-                              setUc2Attributes((prev) => ({
-                                ...prev,
-                                [fieldKey]: event.target.value,
-                              }))
-                            }
-                            placeholder={fieldSchema.description || `Nhập ${label}`}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
+                          {enumValues.length > 0 ? (
+                            <select
+                              value={String(uc2Attributes[fieldKey] ?? '')}
+                              onChange={(event) =>
+                                setUc2Attributes((prev) => ({
+                                  ...prev,
+                                  [fieldKey]: event.target.value,
+                                }))
+                              }
+                              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="">Chọn {label}</option>
+                              {enumValues.map((enumValue) => (
+                                <option key={`${fieldKey}-${String(enumValue)}`} value={String(enumValue)}>
+                                  {String(enumValue)}
+                                </option>
+                              ))}
+                            </select>
+                          ) : fieldType === 'boolean' ? (
+                            <select
+                              value={String(uc2Attributes[fieldKey] ?? '')}
+                              onChange={(event) =>
+                                setUc2Attributes((prev) => ({
+                                  ...prev,
+                                  [fieldKey]: event.target.value,
+                                }))
+                              }
+                              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="">Chọn {label}</option>
+                              <option value="true">true</option>
+                              <option value="false">false</option>
+                            </select>
+                          ) : (
+                            <input
+                              type={fieldType === 'number' || fieldType === 'integer' ? 'number' : 'text'}
+                              step={fieldType === 'integer' ? '1' : fieldType === 'number' ? 'any' : undefined}
+                              value={String(uc2Attributes[fieldKey] ?? '')}
+                              onChange={(event) =>
+                                setUc2Attributes((prev) => ({
+                                  ...prev,
+                                  [fieldKey]: event.target.value,
+                                }))
+                              }
+                              placeholder={fieldSchema.description || `Nhập ${label}`}
+                              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          )}
                         </div>
                       );
                     })}
