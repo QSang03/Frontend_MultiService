@@ -31,7 +31,7 @@ const jsonSafeReplacer = (_key: string, value: unknown) => {
 };
 // Backend URL for raw gRPC over HTTP/2 (server-side).
 // Prefer the public proto URL so both client and server use one source.
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_PROTO_URL || process.env.BACKEND_GRPC_URL || process.env.BACKEND_URL || 'http://192.168.117.18:3000';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_PROTO_URL || process.env.BACKEND_GRPC_URL || process.env.BACKEND_URL || 'http://192.168.117.66:3000';
 
 // adminClient intentionally not used directly; create authenticated clients per-call.
 // (removed unused `transport` variable to satisfy linter)

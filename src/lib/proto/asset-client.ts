@@ -26,7 +26,7 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.18:3000';
+  'http://192.168.117.66:3000';
 
 async function executeWithRefresh<T>(operation: () => Promise<T>, retryOnce = true): Promise<T> {
   try {
