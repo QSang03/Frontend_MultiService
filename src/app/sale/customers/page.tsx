@@ -346,7 +346,7 @@ export default function SaleCustomersPage() {
       setLoadingUc2Discovery(true);
       try {
         const [categoriesRes, servicesRes] = await Promise.all([
-          fetch('/api/admin/catalog/categories?page_size=50'),
+          fetch('/api/admin/catalog/categories?page_size=50&has_services=true&show_approved=true'),
           fetch('/api/admin/catalog/services?page_size=100&show_inactive=false'),
         ]);
 

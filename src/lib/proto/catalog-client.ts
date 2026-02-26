@@ -225,6 +225,8 @@ export async function protoListCategories(params?: {
   pageSize?: number;
   pageToken?: string;
   parentId?: string;
+  hasServices?: boolean;
+  showApproved?: boolean;
 }): Promise<{ success: boolean; response?: unknown; error?: string }> {
   try {
     const response = await executeWithRefresh(async () => {
@@ -233,6 +235,8 @@ export async function protoListCategories(params?: {
         pageSize: params?.pageSize ?? 50,
         pageToken: params?.pageToken ?? '',
         parentId: params?.parentId,
+        hasServices: params?.hasServices,
+        showApproved: params?.showApproved,
       });
       type RpcMethod = (req: unknown) => Promise<unknown>;
       return await (client as unknown as Record<string, RpcMethod>).listCategories(request as unknown);

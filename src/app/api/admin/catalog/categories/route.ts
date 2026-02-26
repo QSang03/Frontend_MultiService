@@ -68,7 +68,11 @@ export async function GET(req: Request) {
   const pageSize = Number(searchParams.get('page_size') || '50');
   const pageToken = searchParams.get('page_token') || '';
   const parentId = searchParams.get('parent_id') || undefined;
+  const hasServicesRaw = searchParams.get('has_services');
+  const showApprovedRaw = searchParams.get('show_approved');
   const categoryId = searchParams.get('category_id') || undefined;
+  const hasServices = hasServicesRaw == null ? undefined : hasServicesRaw === 'true';
+  const showApproved = showApprovedRaw == null ? undefined : showApprovedRaw === 'true';
 
   if (categoryId) {
     const result = await protoGetCategory({ categoryId });
@@ -85,6 +89,8 @@ export async function GET(req: Request) {
     pageSize,
     pageToken,
     parentId,
+    hasServices,
+    showApproved,
   });
 
   if (!result.success || !result.response) {
