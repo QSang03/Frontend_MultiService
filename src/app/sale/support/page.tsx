@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, useCallback, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { 
   Search, Plus, MoreVertical, Paperclip, Send, ChevronDown, Volume2, VolumeX,
   Clock, CheckCircle2 
@@ -212,22 +213,22 @@ export default function SupportTrackingPage() {
     }
   };
 
-  const getMessageTimestamp = (message: ChatUiMessage): number => {
+  const getMessageTimestamp = useCallback((message: ChatUiMessage): number => {
     const raw = String(message.createdAt ?? '').trim();
     if (!raw) return 0;
     const time = new Date(raw).getTime();
     return Number.isNaN(time) ? 0 : time;
-  };
+  }, []);
 
-  const sortMessagesOldestFirst = (items: ChatUiMessage[]): ChatUiMessage[] => {
+  const sortMessagesOldestFirst = useCallback((items: ChatUiMessage[]): ChatUiMessage[] => {
     return [...items].sort((a, b) => {
       const diff = getMessageTimestamp(a) - getMessageTimestamp(b);
       if (diff !== 0) return diff;
       return a.id.localeCompare(b.id);
     });
-  };
+  }, [getMessageTimestamp]);
 
-  const mergeChatMessages = (current: ChatUiMessage[], incoming: ChatUiMessage[]): ChatUiMessage[] => {
+  const mergeChatMessages = useCallback((current: ChatUiMessage[], incoming: ChatUiMessage[]): ChatUiMessage[] => {
     const merged = new Map<string, ChatUiMessage>();
     current.forEach((item) => merged.set(item.id, item));
     incoming.forEach((item) => {
@@ -236,7 +237,7 @@ export default function SupportTrackingPage() {
       }
     });
     return sortMessagesOldestFirst(Array.from(merged.values()));
-  };
+  }, [sortMessagesOldestFirst]);
 
   const formatBytes = (bytes?: number): string => {
     if (!bytes || bytes <= 0) return '0 B';
@@ -267,7 +268,7 @@ export default function SupportTrackingPage() {
     }
   };
 
-  const playNewMessageSound = () => {
+  const playNewMessageSound = useCallback(() => {
     if (!enableNewMessageSound) return;
     try {
       const Ctx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -288,9 +289,9 @@ export default function SupportTrackingPage() {
       oscillator.stop(audioContext.currentTime + 0.12);
     } catch {
     }
-  };
+  }, [enableNewMessageSound]);
 
-  const mapChatMessageToUi = (raw: Record<string, unknown>): ChatUiMessage => {
+  const mapChatMessageToUi = useCallback((raw: Record<string, unknown>): ChatUiMessage => {
     const senderId = String(raw.senderId ?? raw.sender_id ?? '').trim();
     const messageType = Number(raw.messageType ?? raw.message_type ?? 0);
     const resolveRole = (): ChatUiMessage['role'] => {
@@ -330,7 +331,7 @@ export default function SupportTrackingPage() {
       time: formatChatTime(String(raw.createdAt ?? raw.created_at ?? '')),
       isMe: false,
     };
-  };
+  }, [chatRoomType, chatRoomTicketId, selectedTicket, chatRoomOrgId, contextOwnerId]);
 
   const formatSlaTargetTime = (raw: { targetResolutionAt?: string; createdAt?: string; slaHours?: number }): string => {
     const resolutionRaw = String(raw.targetResolutionAt ?? '').trim();
@@ -651,7 +652,7 @@ export default function SupportTrackingPage() {
     setMessageInput('');
   };
 
-  const loadChatForTicket = async (ticketId: string) => {
+  const loadChatForTicket = useCallback(async (ticketId: string) => {
     if (!ticketId) return;
     setLoadingChat(true);
     try {
@@ -707,7 +708,7 @@ export default function SupportTrackingPage() {
     } finally {
       setLoadingChat(false);
     }
-  };
+  }, [mapChatMessageToUi, sortMessagesOldestFirst]);
 
   const handleLoadMoreChat = async () => {
     if (!chatRoomId || !chatNextPageToken || loadingMoreChat) return;
@@ -773,7 +774,7 @@ export default function SupportTrackingPage() {
       return;
     }
     void loadChatForTicket(selectedTicket.id);
-  }, [selectedTicket?.id]);
+  }, [selectedTicket?.id, loadChatForTicket]);
 
   useEffect(() => {
     const currentLength = chatMessages.length;
@@ -802,7 +803,7 @@ export default function SupportTrackingPage() {
     }
 
     previousChatLengthRef.current = currentLength;
-  }, [chatMessages]);
+  }, [chatMessages, playNewMessageSound]);
 
   useEffect(() => {
     evaluateScrollToBottomVisibility();
@@ -837,7 +838,7 @@ export default function SupportTrackingPage() {
         chatEventSourceRef.current = null;
       }
     };
-  }, [chatRoomId, chatRoomOrgId, chatRoomType, chatRoomTicketId]);
+  }, [chatRoomId, chatRoomOrgId, chatRoomType, chatRoomTicketId, mapChatMessageToUi, mergeChatMessages]);
 
   useEffect(() => {
     const fileIds = new Set<string>();
@@ -1606,9 +1607,11 @@ export default function SupportTrackingPage() {
                             }`}>
                               {msg.messageType === 2 && attachmentUrl ? (
                                 <div className="space-y-2">
-                                  <img
+                                  <Image
                                     src={attachmentUrl}
                                     alt={msg.content || 'image'}
+                                    width={800}
+                                    height={450}
                                     className="max-h-56 w-auto rounded-lg border border-white/30"
                                   />
                                   {msg.content && <p>{msg.content}</p>}
