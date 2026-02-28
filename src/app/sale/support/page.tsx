@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
-  Search, Plus, MoreVertical, Paperclip, Send, 
+  Search, Plus, MoreVertical, Paperclip, Send, ChevronDown, Volume2, VolumeX,
   Clock, CheckCircle2 
 } from 'lucide-react';
 import CreateTicketModal from '@/components/CreateTicketModal';
+import { useToast } from '@/components/ui';
 
 type ServiceCategory = { id: string; name: string; attributesSchema?: string };
 type ServiceOption = { id: string; name: string; categoryId?: string };
@@ -49,6 +50,9 @@ interface Ticket {
   id: string;
   code: string;
   orgId?: string;
+  creatorId?: string;
+  assignedTechId?: string;
+  assignedSaleId?: string;
   categoryId?: string;
   serviceId?: string;
   title: string;
@@ -67,50 +71,32 @@ interface Ticket {
   assignee?: string;
 }
 
-interface Message {
+interface ChatUiMessage {
   id: string;
-  sender: string;
+  senderId: string;
+  senderLabel: string;
   role: 'Client' | 'Sale' | 'Tech' | 'System';
   content: string;
+  metadata?: string;
+  messageType: number;
+  createdAt?: string;
   time: string;
   isMe?: boolean;
 }
 
-const mockMessages: Message[] = [
-  {
-    id: '1',
-    sender: 'System',
-    role: 'System',
-    content: 'Ticket created via Monitoring Alert. • 10:00 AM',
-    time: '10:00 AM',
-  },
-  {
-    id: '2',
-    sender: 'TechSolutions Admin',
-    role: 'Client',
-    content: 'Our main production server is unresponsive.',
-    time: '10:05 AM',
-  },
-  {
-    id: '3',
-    sender: 'Alex Sale',
-    role: 'Sale',
-    content: 'I have escalated this to the DevOps team immediately.',
-    time: '10:10 AM',
-    isMe: true,
-  },
-  {
-    id: '4',
-    sender: 'DevOps Lead',
-    role: 'Tech',
-    content: 'Investigating. Looks like a memory leak in the container.',
-    time: '10:15 AM',
-  },
-];
+type ChatAttachmentMeta = {
+  fileId?: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+  downloadUrl?: string;
+  dataUrl?: string;
+};
 
 export default function SupportTrackingPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const router = useRouter();
+  const { addToast } = useToast();
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | Ticket['status']>('ALL');
@@ -118,6 +104,28 @@ export default function SupportTrackingPage() {
   const [loadingTickets, setLoadingTickets] = useState(false);
   const [loadingMoreTickets, setLoadingMoreTickets] = useState(false);
   const [messageInput, setMessageInput] = useState('');
+  const [chatRoomId, setChatRoomId] = useState('');
+  const [chatRoomOrgId, setChatRoomOrgId] = useState('');
+  const [chatRoomType, setChatRoomType] = useState<number | null>(null);
+  const [chatRoomTicketId, setChatRoomTicketId] = useState('');
+  const [chatMessages, setChatMessages] = useState<ChatUiMessage[]>([]);
+  const [chatNextPageToken, setChatNextPageToken] = useState('');
+  const [loadingChat, setLoadingChat] = useState(false);
+  const [loadingMoreChat, setLoadingMoreChat] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [attachmentUrlByFileId, setAttachmentUrlByFileId] = useState<Record<string, string>>({});
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [unreadNewCount, setUnreadNewCount] = useState(0);
+  const [enableNewMessageSound, setEnableNewMessageSound] = useState(true);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const previousChatLengthRef = useRef(0);
+  const skipAutoScrollRef = useRef(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const resolvingFileIdsRef = useRef<Set<string>>(new Set());
+  const chatEventSourceRef = useRef<EventSource | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [loadingDiscovery, setLoadingDiscovery] = useState(false);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
@@ -175,6 +183,155 @@ export default function SupportTrackingPage() {
     }
   };
 
+  const formatChatTime = (createdAt?: string): string => {
+    const raw = String(createdAt ?? '').trim();
+    if (!raw) return '--:--';
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return '--:--';
+    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+
+  const parseAttachmentMeta = (metadata?: string): ChatAttachmentMeta | null => {
+    const raw = String(metadata ?? '').trim();
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return {
+        fileId: parsed.fileId == null ? (parsed.file_id == null ? undefined : String(parsed.file_id)) : String(parsed.fileId),
+        fileName: parsed.fileName == null ? undefined : String(parsed.fileName),
+        mimeType: parsed.mimeType == null ? undefined : String(parsed.mimeType),
+        size: parsed.size == null ? undefined : Number(parsed.size),
+        downloadUrl:
+          parsed.downloadUrl == null
+            ? (parsed.download_url == null ? undefined : String(parsed.download_url))
+            : String(parsed.downloadUrl),
+        dataUrl: parsed.dataUrl == null ? undefined : String(parsed.dataUrl),
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const getMessageTimestamp = (message: ChatUiMessage): number => {
+    const raw = String(message.createdAt ?? '').trim();
+    if (!raw) return 0;
+    const time = new Date(raw).getTime();
+    return Number.isNaN(time) ? 0 : time;
+  };
+
+  const sortMessagesOldestFirst = (items: ChatUiMessage[]): ChatUiMessage[] => {
+    return [...items].sort((a, b) => {
+      const diff = getMessageTimestamp(a) - getMessageTimestamp(b);
+      if (diff !== 0) return diff;
+      return a.id.localeCompare(b.id);
+    });
+  };
+
+  const mergeChatMessages = (current: ChatUiMessage[], incoming: ChatUiMessage[]): ChatUiMessage[] => {
+    const merged = new Map<string, ChatUiMessage>();
+    current.forEach((item) => merged.set(item.id, item));
+    incoming.forEach((item) => {
+      if (!merged.has(item.id)) {
+        merged.set(item.id, item);
+      }
+    });
+    return sortMessagesOldestFirst(Array.from(merged.values()));
+  };
+
+  const formatBytes = (bytes?: number): string => {
+    if (!bytes || bytes <= 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const isNearChatBottom = (): boolean => {
+    const container = chatScrollRef.current;
+    if (!container) return true;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    return distanceFromBottom <= 80;
+  };
+
+  const evaluateScrollToBottomVisibility = () => {
+    const container = chatScrollRef.current;
+    if (!container) {
+      setShowScrollToBottom(false);
+      return;
+    }
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const show = distanceFromBottom > 80;
+    setShowScrollToBottom(show);
+    if (!show) {
+      setUnreadNewCount(0);
+    }
+  };
+
+  const playNewMessageSound = () => {
+    if (!enableNewMessageSound) return;
+    try {
+      const Ctx = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Ctx) return;
+
+      const audioContext = audioContextRef.current ?? new Ctx();
+      audioContextRef.current = audioContext;
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 920;
+      gainNode.gain.value = 0.08;
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.12);
+    } catch {
+    }
+  };
+
+  const mapChatMessageToUi = (raw: Record<string, unknown>): ChatUiMessage => {
+    const senderId = String(raw.senderId ?? raw.sender_id ?? '').trim();
+    const messageType = Number(raw.messageType ?? raw.message_type ?? 0);
+    const resolveRole = (): ChatUiMessage['role'] => {
+      if (messageType === 4) return 'System';
+      if (!senderId) return 'Sale';
+
+      const isTicketRoom = chatRoomType === 2;
+      const ticketIdMatchesRoom = !chatRoomTicketId || chatRoomTicketId === selectedTicket?.id;
+
+      if (isTicketRoom && ticketIdMatchesRoom && senderId === chatRoomOrgId) return 'Client';
+      if (senderId === contextOwnerId || senderId === selectedTicket?.orgId) return 'Client';
+      if (senderId === selectedTicket?.assignedTechId) return 'Tech';
+      if (senderId === selectedTicket?.assignedSaleId || senderId === selectedTicket?.creatorId) return 'Sale';
+      return 'Sale';
+    };
+
+    const role = resolveRole();
+    const suffix = senderId ? senderId.slice(-6) : '------';
+    const senderLabel =
+      role === 'System'
+        ? 'System'
+        : role === 'Client'
+          ? `Client ${suffix}`
+          : role === 'Tech'
+            ? `Tech ${suffix}`
+            : `Sale ${suffix}`;
+
+    return {
+      id: String(raw.id ?? `${Date.now()}`),
+      senderId,
+      senderLabel,
+      role,
+      content: String(raw.content ?? ''),
+      metadata: raw.metadata == null ? undefined : String(raw.metadata),
+      messageType,
+      createdAt: String(raw.createdAt ?? raw.created_at ?? '').trim() || undefined,
+      time: formatChatTime(String(raw.createdAt ?? raw.created_at ?? '')),
+      isMe: false,
+    };
+  };
+
   const formatSlaTargetTime = (raw: { targetResolutionAt?: string; createdAt?: string; slaHours?: number }): string => {
     const resolutionRaw = String(raw.targetResolutionAt ?? '').trim();
     if (resolutionRaw) {
@@ -218,6 +375,9 @@ export default function SupportTrackingPage() {
       id,
       code: id ? `TICK-${id.slice(-6).toUpperCase()}` : `TICK-${Math.floor(10000 + Math.random() * 90000)}`,
       orgId: raw.orgId == null ? undefined : String(raw.orgId),
+      creatorId: raw.creatorId == null ? undefined : String(raw.creatorId),
+      assignedTechId: raw.assignedTechId == null ? undefined : String(raw.assignedTechId),
+      assignedSaleId: raw.assignedSaleId == null ? undefined : String(raw.assignedSaleId),
       categoryId: raw.categoryId == null ? undefined : String(raw.categoryId),
       serviceId: raw.serviceId == null ? undefined : String(raw.serviceId),
       title,
@@ -480,6 +640,310 @@ export default function SupportTrackingPage() {
     setServices([]);
     setAssets([]);
     setSelectedAssetId('');
+    setChatRoomId('');
+    setChatRoomOrgId('');
+    setChatRoomType(null);
+    setChatRoomTicketId('');
+    setChatMessages([]);
+    setAttachmentUrlByFileId({});
+    resolvingFileIdsRef.current.clear();
+    setChatNextPageToken('');
+    setMessageInput('');
+  };
+
+  const loadChatForTicket = async (ticketId: string) => {
+    if (!ticketId) return;
+    setLoadingChat(true);
+    try {
+      const roomRes = await fetch(`/api/sale/chat/ticket-room?ticket_id=${encodeURIComponent(ticketId)}`);
+      const roomJson = await roomRes.json().catch(() => ({}));
+      if (!roomRes.ok || !roomJson?.room?.id) {
+        setChatRoomId('');
+        setChatRoomOrgId('');
+        setChatRoomType(null);
+        setChatRoomTicketId('');
+        setChatMessages([]);
+        setAttachmentUrlByFileId({});
+        resolvingFileIdsRef.current.clear();
+        setChatNextPageToken('');
+        return;
+      }
+
+      const room = roomJson.room as Record<string, unknown>;
+      const roomId = String(room.id ?? '');
+      setChatRoomId(roomId);
+      setChatRoomOrgId(String(room.orgId ?? room.org_id ?? '').trim());
+      setChatRoomType(Number(room.roomType ?? room.room_type ?? 0));
+      setChatRoomTicketId(String(room.ticketId ?? room.ticket_id ?? '').trim());
+
+      const msgRes = await fetch(`/api/sale/chat/messages?room_id=${encodeURIComponent(roomId)}&page_size=30`);
+      const msgJson = await msgRes.json().catch(() => ({}));
+      if (!msgRes.ok) {
+        setChatMessages([]);
+        setAttachmentUrlByFileId({});
+        resolvingFileIdsRef.current.clear();
+        setChatNextPageToken('');
+        return;
+      }
+
+      const incomingRaw = Array.isArray(msgJson?.messages) ? (msgJson.messages as Record<string, unknown>[]) : [];
+      setChatMessages(sortMessagesOldestFirst(incomingRaw.map((item) => mapChatMessageToUi(item))));
+      setChatNextPageToken(String(msgJson?.next_page_token ?? ''));
+
+      await fetch('/api/sale/chat/mark-read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: roomId }),
+      });
+    } catch {
+      setChatRoomId('');
+      setChatRoomOrgId('');
+      setChatRoomType(null);
+      setChatRoomTicketId('');
+      setChatMessages([]);
+      setAttachmentUrlByFileId({});
+      resolvingFileIdsRef.current.clear();
+      setChatNextPageToken('');
+    } finally {
+      setLoadingChat(false);
+    }
+  };
+
+  const handleLoadMoreChat = async () => {
+    if (!chatRoomId || !chatNextPageToken || loadingMoreChat) return;
+    skipAutoScrollRef.current = true;
+    setLoadingMoreChat(true);
+    try {
+      const response = await fetch(
+        `/api/sale/chat/messages?room_id=${encodeURIComponent(chatRoomId)}&page_size=30&page_token=${encodeURIComponent(chatNextPageToken)}`
+      );
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) return;
+      const incomingRaw = Array.isArray(json?.messages) ? (json.messages as Record<string, unknown>[]) : [];
+      const mapped = incomingRaw.map((item) => mapChatMessageToUi(item));
+      setChatMessages((prev) => mergeChatMessages(prev, mapped));
+      setChatNextPageToken(String(json?.next_page_token ?? ''));
+    } catch {
+    } finally {
+      setLoadingMoreChat(false);
+    }
+  };
+
+  const handleSendChatMessage = async () => {
+    const content = messageInput.trim();
+    if (!chatRoomId || !content || sendingMessage) return;
+
+    setSendingMessage(true);
+    try {
+      const response = await fetch('/api/sale/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: chatRoomId,
+          message_type: 'text',
+          content,
+          metadata: '{}',
+        }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || !json?.message) return;
+
+      const mapped = mapChatMessageToUi(json.message as Record<string, unknown>);
+      setChatMessages((prev) => mergeChatMessages(prev, [{ ...mapped, isMe: true }]));
+      setMessageInput('');
+    } catch {
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedTicket?.id) {
+      setChatRoomId('');
+      setChatRoomOrgId('');
+      setChatRoomType(null);
+      setChatRoomTicketId('');
+      setChatMessages([]);
+      setChatNextPageToken('');
+      setAttachmentUrlByFileId({});
+      resolvingFileIdsRef.current.clear();
+      previousChatLengthRef.current = 0;
+      skipAutoScrollRef.current = false;
+      setUnreadNewCount(0);
+      return;
+    }
+    void loadChatForTicket(selectedTicket.id);
+  }, [selectedTicket?.id]);
+
+  useEffect(() => {
+    const currentLength = chatMessages.length;
+    const previousLength = previousChatLengthRef.current;
+    const hasNewMessages = currentLength > previousLength;
+    const addedCount = Math.max(0, currentLength - previousLength);
+
+    if (hasNewMessages) {
+      if (skipAutoScrollRef.current) {
+        skipAutoScrollRef.current = false;
+      } else {
+        const nearBottom = isNearChatBottom();
+        if (nearBottom || previousLength === 0) {
+          const behavior: ScrollBehavior = previousLength === 0 ? 'auto' : 'smooth';
+          if (chatBottomRef.current) {
+            chatBottomRef.current.scrollIntoView({ behavior, block: 'end' });
+          } else if (chatScrollRef.current) {
+            chatScrollRef.current.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior });
+          }
+          setUnreadNewCount(0);
+        } else {
+          setUnreadNewCount((prev) => prev + addedCount);
+          playNewMessageSound();
+        }
+      }
+    }
+
+    previousChatLengthRef.current = currentLength;
+  }, [chatMessages]);
+
+  useEffect(() => {
+    evaluateScrollToBottomVisibility();
+  }, [chatMessages, loadingChat]);
+
+  useEffect(() => {
+    if (chatEventSourceRef.current) {
+      chatEventSourceRef.current.close();
+      chatEventSourceRef.current = null;
+    }
+
+    if (!chatRoomId) return;
+
+    const eventSource = new EventSource(`/api/sale/chat/stream?room_id=${encodeURIComponent(chatRoomId)}`);
+    chatEventSourceRef.current = eventSource;
+
+    const onMessage = (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as Record<string, unknown>;
+        const mapped = mapChatMessageToUi(payload);
+        setChatMessages((prev) => mergeChatMessages(prev, [mapped]));
+      } catch {
+      }
+    };
+
+    eventSource.addEventListener('message', onMessage as EventListener);
+
+    return () => {
+      eventSource.removeEventListener('message', onMessage as EventListener);
+      eventSource.close();
+      if (chatEventSourceRef.current === eventSource) {
+        chatEventSourceRef.current = null;
+      }
+    };
+  }, [chatRoomId, chatRoomOrgId, chatRoomType, chatRoomTicketId]);
+
+  useEffect(() => {
+    const fileIds = new Set<string>();
+    chatMessages.forEach((message) => {
+      const meta = parseAttachmentMeta(message.metadata);
+      const fileId = String(meta?.fileId ?? '').trim();
+      const urlInMeta = String(meta?.downloadUrl ?? '').trim();
+      if (fileId && !urlInMeta) {
+        fileIds.add(fileId);
+      }
+    });
+
+    fileIds.forEach((fileId) => {
+      if (attachmentUrlByFileId[fileId]) return;
+      if (resolvingFileIdsRef.current.has(fileId)) return;
+      resolvingFileIdsRef.current.add(fileId);
+
+      void fetch(`/api/sale/chat/download-url?file_id=${encodeURIComponent(fileId)}`)
+        .then((response) => response.json().catch(() => ({})).then((json) => ({ ok: response.ok, json })))
+        .then(({ ok, json }) => {
+          if (!ok) return;
+          const downloadUrl = String(json?.download_url ?? '').trim();
+          if (!downloadUrl) return;
+          setAttachmentUrlByFileId((prev) => ({ ...prev, [fileId]: downloadUrl }));
+        })
+        .catch(() => {
+          addToast('Không thể tải link tệp đính kèm', { type: 'error' });
+        })
+        .finally(() => {
+          resolvingFileIdsRef.current.delete(fileId);
+        });
+    });
+  }, [addToast, attachmentUrlByFileId, chatMessages]);
+
+  const handleSendAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !chatRoomId || uploadingAttachment) return;
+
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setFlowMessage('File quá lớn. Giới hạn tối đa 10MB/tệp.');
+      addToast('File quá lớn. Giới hạn 10MB.', { type: 'error' });
+      return;
+    }
+
+    const isImage = file.type.startsWith('image/');
+    setUploadingAttachment(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (effectiveContextId) {
+        formData.append('organization_id', effectiveContextId);
+      }
+
+      const uploadResponse = await fetch('/api/sale/chat/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const uploadJson = await uploadResponse.json().catch(() => ({}));
+      if (!uploadResponse.ok || !uploadJson?.file_id) {
+        setFlowMessage(uploadJson?.error || 'Không upload được tệp đính kèm.');
+        addToast(uploadJson?.error || 'Upload tệp thất bại', { type: 'error' });
+        return;
+      }
+
+      const fileId = String(uploadJson.file_id);
+      const downloadUrl = String(uploadJson.download_url ?? '').trim();
+      if (downloadUrl) {
+        setAttachmentUrlByFileId((prev) => ({ ...prev, [fileId]: downloadUrl }));
+      }
+
+      const metadata = JSON.stringify({
+        fileId,
+        fileName: file.name,
+        mimeType: file.type,
+        size: file.size,
+        downloadUrl,
+      });
+
+      const response = await fetch('/api/sale/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: chatRoomId,
+          message_type: isImage ? 'image' : 'file',
+          content: file.name,
+          metadata,
+        }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || !json?.message) {
+        setFlowMessage(json?.error || 'Không gửi được tệp đính kèm.');
+        addToast(json?.error || 'Gửi tệp vào chat thất bại', { type: 'error' });
+        return;
+      }
+
+      const mapped = mapChatMessageToUi(json.message as Record<string, unknown>);
+      setChatMessages((prev) => mergeChatMessages(prev, [{ ...mapped, isMe: true }]));
+      addToast(isImage ? 'Đã gửi ảnh' : 'Đã gửi tệp', { type: 'success' });
+    } catch {
+      setFlowMessage('Lỗi kết nối khi gửi tệp đính kèm.');
+      addToast('Lỗi mạng khi gửi tệp', { type: 'error' });
+    } finally {
+      setUploadingAttachment(false);
+    }
   };
 
   const getTicketOrgId = (ticket: Ticket): string => {
@@ -924,7 +1388,7 @@ export default function SupportTrackingPage() {
 
       {/* Right Pane: Ticket Detail & Chat */}
       {selectedTicket && (
-        <div className="flex-1 flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             {/* Header */}
             <div className="p-6 border-b border-gray-100 flex items-start justify-between">
                 <div>
@@ -1098,43 +1562,147 @@ export default function SupportTrackingPage() {
             )}
 
             {/* Chat Area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
-                <div className="flex justify-center">
-                    <span className="bg-gray-100 text-gray-500 text-xs px-3 py-1 rounded-full">
-                        Ticket created via Monitoring Alert. • 10:00 AM
-                    </span>
-                </div>
+            <div className="relative flex-1 min-h-0 bg-white">
+            <div
+              ref={chatScrollRef}
+              onScroll={evaluateScrollToBottomVisibility}
+              className="absolute inset-0 overflow-y-auto p-6 space-y-6"
+            >
+                {loadingChat ? (
+                  <div className="text-sm text-gray-500">Đang tải hội thoại...</div>
+                ) : !chatRoomId ? (
+                  <div className="text-sm text-gray-500">Ticket này chưa có chat room.</div>
+                ) : chatMessages.length === 0 ? (
+                  <div className="text-sm text-gray-500">Chưa có tin nhắn trong room này.</div>
+                ) : (
+                  <>
+                    {chatMessages.map((msg) => {
+                      const attachment = parseAttachmentMeta(msg.metadata);
+                      const attachmentFileId = String(attachment?.fileId ?? '').trim();
+                      const attachmentUrl = String(
+                        attachment?.downloadUrl ?? attachment?.dataUrl ?? (attachmentFileId ? attachmentUrlByFileId[attachmentFileId] ?? '' : '')
+                      );
+                      const attachmentFileName = String(attachment?.fileName ?? msg.content ?? 'attachment');
 
-                {mockMessages.filter(m => m.role !== 'System').map(msg => (
-                    <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] ${msg.isMe ? 'order-2' : 'order-2'}`}>
+                      return (
+                        <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] ${msg.isMe ? 'order-2' : 'order-2'}`}>
                             <div className={`flex items-baseline gap-2 mb-1 ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
-                                <span className={`text-xs font-bold ${
-                                    msg.role === 'Client' ? 'text-gray-900' :
-                                    msg.role === 'Sale' ? 'text-blue-600' :
-                                    'text-purple-600'
-                                }`}>
-                                    {msg.sender} 
-                                    <span className="text-gray-400 font-normal ml-1">({msg.role})</span>
-                                </span>
-                                <span className="text-xs text-gray-400">{msg.time}</span>
+                              <span className={`text-xs font-bold ${
+                                msg.role === 'Client' ? 'text-gray-900' :
+                                msg.role === 'Sale' ? 'text-blue-600' :
+                                msg.role === 'Tech' ? 'text-purple-600' :
+                                'text-gray-500'
+                              }`}>
+                                {msg.senderLabel}
+                                <span className="text-gray-400 font-normal ml-1">({msg.role})</span>
+                              </span>
+                              <span className="text-xs text-gray-400">{msg.time}</span>
                             </div>
                             <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                                msg.isMe 
-                                    ? 'bg-blue-600 text-white rounded-tr-none' 
-                                    : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none'
+                              msg.isMe
+                                ? 'bg-blue-600 text-white rounded-tr-none'
+                                : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none'
                             }`}>
-                                {msg.content}
+                              {msg.messageType === 2 && attachmentUrl ? (
+                                <div className="space-y-2">
+                                  <img
+                                    src={attachmentUrl}
+                                    alt={msg.content || 'image'}
+                                    className="max-h-56 w-auto rounded-lg border border-white/30"
+                                  />
+                                  {msg.content && <p>{msg.content}</p>}
+                                </div>
+                              ) : msg.messageType === 2 && attachmentFileId ? (
+                                <div className="space-y-2">
+                                  <div className={`h-40 w-60 rounded-lg animate-pulse ${msg.isMe ? 'bg-blue-500/60' : 'bg-gray-200'}`} />
+                                  <p className={`${msg.isMe ? 'text-blue-100' : 'text-gray-500'}`}>Đang tải ảnh...</p>
+                                </div>
+                              ) : msg.messageType === 3 && attachmentUrl ? (
+                                <a
+                                  href={attachmentUrl}
+                                  download={attachmentFileName}
+                                  className={`underline font-medium ${msg.isMe ? 'text-white' : 'text-blue-700'}`}
+                                >
+                                  {String(attachment?.fileName ?? msg.content ?? 'Tệp đính kèm')}
+                                  <span className={`ml-2 text-xs ${msg.isMe ? 'text-blue-100' : 'text-gray-500'}`}>
+                                    {formatBytes(attachment?.size)}
+                                  </span>
+                                </a>
+                              ) : (msg.messageType === 2 || msg.messageType === 3) && attachmentFileId ? (
+                                <div className="space-y-2">
+                                  <div className={`h-4 w-48 rounded animate-pulse ${msg.isMe ? 'bg-blue-500/60' : 'bg-gray-200'}`} />
+                                  <span className={`${msg.isMe ? 'text-blue-100' : 'text-gray-500'}`}>Đang tải tệp đính kèm...</span>
+                                </div>
+                              ) : (
+                                msg.content
+                              )}
                             </div>
+                          </div>
                         </div>
+                      );
+                    })}
+                    <div className="flex justify-center pt-2">
+                      <button
+                        onClick={() => void handleLoadMoreChat()}
+                        disabled={!chatNextPageToken || loadingMoreChat}
+                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 text-gray-700 bg-gray-50 disabled:opacity-50"
+                      >
+                        {loadingMoreChat ? 'Loading...' : chatNextPageToken ? 'Load older messages' : 'No more messages'}
+                      </button>
                     </div>
-                ))}
+                    <div ref={chatBottomRef} />
+                  </>
+                )}
+            </div>
+            {showScrollToBottom && (
+              <button
+                onClick={() => {
+                  chatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                  setUnreadNewCount(0);
+                }}
+                className="absolute right-4 bottom-4 inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                <ChevronDown className="h-3.5 w-3.5" />
+                Tin mới nhất
+                {unreadNewCount > 0 && (
+                  <span className="ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    {unreadNewCount > 99 ? '99+' : unreadNewCount}
+                  </span>
+                )}
+              </button>
+            )}
+            {chatRoomId && (
+              <button
+                onClick={() => {
+                  setEnableNewMessageSound((prev) => {
+                    const next = !prev;
+                    addToast(next ? 'Đã bật âm báo tin nhắn' : 'Đã tắt âm báo tin nhắn', { type: 'info' });
+                    return next;
+                  });
+                }}
+                title={enableNewMessageSound ? 'Tắt âm báo' : 'Bật âm báo'}
+                className="absolute right-4 bottom-16 inline-flex items-center justify-center rounded-full border border-gray-200 bg-white p-2 text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                {enableNewMessageSound ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              </button>
+            )}
             </div>
 
             {/* Footer Input */}
             <div className="p-4 border-t border-gray-100 bg-white">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={(event) => void handleSendAttachment(event)}
+              />
                 <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all shadow-sm">
-                    <button className="text-gray-400 hover:text-gray-600">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!chatRoomId || uploadingAttachment || sendingMessage}
+                  className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                >
                         <Paperclip className="w-5 h-5" />
                     </button>
                     <input 
@@ -1144,7 +1712,11 @@ export default function SupportTrackingPage() {
                         value={messageInput}
                         onChange={(e) => setMessageInput(e.target.value)}
                     />
-                    <button className="text-blue-600 hover:text-blue-700 bg-blue-50 p-2 rounded-full">
+                      <button
+                        onClick={() => void handleSendChatMessage()}
+                        disabled={!chatRoomId || !messageInput.trim() || sendingMessage || uploadingAttachment}
+                        className="text-blue-600 hover:text-blue-700 bg-blue-50 p-2 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         <Send className="w-4 h-4" />
                     </button>
                 </div>

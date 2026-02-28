@@ -4,6 +4,9 @@ import { protoCreateTicket, protoListTickets, protoUpdateTicketStatus } from '@/
 type TicketDto = {
   id: string;
   orgId?: string;
+  creatorId?: string;
+  assignedTechId?: string;
+  assignedSaleId?: string;
   categoryId?: string;
   serviceId?: string;
   title: string;
@@ -54,6 +57,15 @@ function normalizeTicket(raw: unknown): TicketDto {
   return {
     id: String(obj.id ?? ''),
     orgId: obj.orgId == null ? undefined : String(obj.orgId),
+    creatorId: obj.creatorId == null ? (obj.creator_id == null ? undefined : String(obj.creator_id)) : String(obj.creatorId),
+    assignedTechId:
+      obj.assignedTechId == null
+        ? (obj.assigned_tech_id == null ? undefined : String(obj.assigned_tech_id))
+        : String(obj.assignedTechId),
+    assignedSaleId:
+      obj.assignedSaleId == null
+        ? (obj.assigned_sale_id == null ? undefined : String(obj.assigned_sale_id))
+        : String(obj.assignedSaleId),
     categoryId: obj.categoryId == null ? undefined : String(obj.categoryId),
     serviceId: obj.serviceId == null ? undefined : String(obj.serviceId),
     title: String(obj.title ?? ''),
