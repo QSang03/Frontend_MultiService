@@ -17,9 +17,9 @@ export async function POST(req: Request) {
   const organizationIdRaw = formData.get('organization_id');
   const organizationId = String(organizationIdRaw ?? '').trim() || undefined;
 
-  const filename = fileValue.name || 'attachment';
-  const mimeType = fileValue.type || 'application/octet-stream';
-  const size = Number(fileValue.size ?? 0);
+  const filename = String(formData.get('filename') ?? '').trim() || fileValue.name || 'attachment';
+  const mimeType = String(formData.get('mime_type') ?? '').trim() || fileValue.type || 'application/octet-stream';
+  const size = Number(formData.get('size') ?? fileValue.size ?? 0);
 
   if (!Number.isFinite(size) || size <= 0) {
     return NextResponse.json({ error: 'Invalid file size' }, { status: 400 });
@@ -81,6 +81,13 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json({
+    file_metadata: {
+      id: fileId,
+      filename,
+      mime_type: mimeType,
+      size,
+      url: downloadUrl,
+    },
     file_id: fileId,
     filename,
     mime_type: mimeType,

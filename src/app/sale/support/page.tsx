@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback, type ChangeEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, memo, type ChangeEvent, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import { 
   Search, Plus, MoreVertical, Paperclip, Send, ChevronDown, Volume2, VolumeX,
   Clock, CheckCircle2 
@@ -47,6 +46,8 @@ const STATUS_FROM_NUMBER: Record<number, Ticket['status']> = {
   10: 'CLOSED',
 };
 
+const CHAT_LOAD_MORE_TOP_THRESHOLD = 80;
+
 interface Ticket {
   id: string;
   code: string;
@@ -90,9 +91,179 @@ type ChatAttachmentMeta = {
   fileName?: string;
   mimeType?: string;
   size?: number;
-  downloadUrl?: string;
+  url?: string;
   dataUrl?: string;
 };
+
+/* ── helpers moved outside component to avoid re-creation ── */
+
+function parseAttachmentMetaStatic(metadata?: string): ChatAttachmentMeta | null {
+  const raw = String(metadata ?? '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      fileId: parsed.fileId == null ? (parsed.file_id == null ? undefined : String(parsed.file_id)) : String(parsed.fileId),
+      fileName: parsed.file_name == null ? (parsed.fileName == null ? undefined : String(parsed.fileName)) : String(parsed.file_name),
+      mimeType: parsed.mime_type == null ? (parsed.mimeType == null ? undefined : String(parsed.mimeType)) : String(parsed.mime_type),
+      size: parsed.file_size == null ? (parsed.size == null ? undefined : Number(parsed.size)) : Number(parsed.file_size),
+      url:
+        parsed.url == null
+          ? (parsed.downloadUrl == null
+            ? (parsed.download_url == null ? undefined : String(parsed.download_url))
+            : String(parsed.downloadUrl))
+          : String(parsed.url),
+      dataUrl: parsed.dataUrl == null ? undefined : String(parsed.dataUrl),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function extractFileIdFromS3UrlStatic(url: string): string {
+  try {
+    const { pathname } = new URL(url);
+    const segments = pathname.split('/');
+    return segments[segments.length - 1] ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function formatBytesStatic(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getFileExtensionStatic(fileName: string): string {
+  const idx = fileName.lastIndexOf('.');
+  return idx >= 0 ? fileName.slice(idx + 1).toLowerCase() : '';
+}
+
+const FILE_ICON_MAP: Record<string, { icon: string; bg: string; color: string }> = {
+  pdf: { icon: 'PDF', bg: 'bg-red-100', color: 'text-red-600' },
+  doc: { icon: 'DOC', bg: 'bg-blue-100', color: 'text-blue-600' },
+  docx: { icon: 'DOC', bg: 'bg-blue-100', color: 'text-blue-600' },
+  xls: { icon: 'XLS', bg: 'bg-green-100', color: 'text-green-600' },
+  xlsx: { icon: 'XLS', bg: 'bg-green-100', color: 'text-green-600' },
+  csv: { icon: 'CSV', bg: 'bg-green-100', color: 'text-green-600' },
+  ppt: { icon: 'PPT', bg: 'bg-orange-100', color: 'text-orange-600' },
+  pptx: { icon: 'PPT', bg: 'bg-orange-100', color: 'text-orange-600' },
+  zip: { icon: 'ZIP', bg: 'bg-yellow-100', color: 'text-yellow-700' },
+  rar: { icon: 'RAR', bg: 'bg-yellow-100', color: 'text-yellow-700' },
+  '7z': { icon: '7Z', bg: 'bg-yellow-100', color: 'text-yellow-700' },
+  tar: { icon: 'TAR', bg: 'bg-yellow-100', color: 'text-yellow-700' },
+  gz: { icon: 'GZ', bg: 'bg-yellow-100', color: 'text-yellow-700' },
+  mp3: { icon: 'MP3', bg: 'bg-pink-100', color: 'text-pink-600' },
+  wav: { icon: 'WAV', bg: 'bg-pink-100', color: 'text-pink-600' },
+  mp4: { icon: 'MP4', bg: 'bg-purple-100', color: 'text-purple-600' },
+  avi: { icon: 'AVI', bg: 'bg-purple-100', color: 'text-purple-600' },
+  mkv: { icon: 'MKV', bg: 'bg-purple-100', color: 'text-purple-600' },
+  txt: { icon: 'TXT', bg: 'bg-gray-100', color: 'text-gray-600' },
+  json: { icon: 'JSON', bg: 'bg-gray-100', color: 'text-gray-600' },
+  xml: { icon: 'XML', bg: 'bg-gray-100', color: 'text-gray-600' },
+  html: { icon: 'HTML', bg: 'bg-orange-100', color: 'text-orange-600' },
+  js: { icon: 'JS', bg: 'bg-yellow-100', color: 'text-yellow-700' },
+  ts: { icon: 'TS', bg: 'bg-blue-100', color: 'text-blue-600' },
+  py: { icon: 'PY', bg: 'bg-blue-100', color: 'text-blue-600' },
+  exe: { icon: 'EXE', bg: 'bg-red-100', color: 'text-red-500' },
+  iso: { icon: 'ISO', bg: 'bg-indigo-100', color: 'text-indigo-600' },
+  svg: { icon: 'SVG', bg: 'bg-teal-100', color: 'text-teal-600' },
+};
+const DEFAULT_FILE_ICON = { icon: 'FILE', bg: 'bg-gray-100', color: 'text-gray-500' };
+
+function getFileIconStatic(ext: string) {
+  return FILE_ICON_MAP[ext] ?? DEFAULT_FILE_ICON;
+}
+
+/* ── Memoized chat message row ── */
+
+interface ChatMessageItemProps {
+  msg: ChatUiMessage;
+  attachmentUrl: string;
+  attachmentFileName: string;
+  attachmentFileId: string;
+  attachmentSize?: number;
+}
+
+const ChatMessageItem = memo(function ChatMessageItem({ msg, attachmentUrl, attachmentFileName, attachmentFileId, attachmentSize }: ChatMessageItemProps) {
+  return (
+    <div className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
+      <div className="max-w-[80%]">
+        <div className={`flex items-baseline gap-2 mb-1 ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
+          <span className={`text-xs font-bold ${
+            msg.role === 'Client' ? 'text-gray-900' :
+            msg.role === 'Sale' ? 'text-blue-600' :
+            msg.role === 'Tech' ? 'text-purple-600' :
+            'text-gray-500'
+          }`}>
+            {msg.senderLabel}
+            <span className="text-gray-400 font-normal ml-1">({msg.role})</span>
+          </span>
+          <span className="text-xs text-gray-400">{msg.time}</span>
+        </div>
+        {msg.messageType === 2 && attachmentUrl ? (
+          <div className="space-y-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={attachmentUrl}
+              alt={msg.content || 'image'}
+              loading="lazy"
+              decoding="async"
+              width={320}
+              height={240}
+              className="max-h-60 max-w-xs w-auto rounded-xl object-cover cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => window.open(attachmentUrl, '_blank')}
+            />
+          </div>
+        ) : msg.messageType === 2 && attachmentFileId ? (
+          <div className="space-y-1">
+            <div className="h-40 w-60 rounded-xl animate-pulse bg-gray-200" />
+            <p className="text-xs text-gray-400">Đang tải ảnh...</p>
+          </div>
+        ) : msg.messageType === 3 && attachmentUrl ? (
+          <a
+            href={attachmentUrl}
+            download={attachmentFileName}
+            className="flex items-center gap-3 p-3 rounded-xl bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors max-w-xs"
+          >
+            {(() => {
+              const ext = getFileExtensionStatic(attachmentFileName);
+              const fi = getFileIconStatic(ext);
+              return (
+                <div className={`flex-shrink-0 w-11 h-11 rounded-lg flex items-center justify-center ${fi.bg}`}>
+                  <span className={`text-xs font-bold ${fi.color}`}>{fi.icon}</span>
+                </div>
+              );
+            })()}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate">{attachmentFileName}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{formatBytesStatic(attachmentSize)}</p>
+            </div>
+          </a>
+        ) : (msg.messageType === 2 || msg.messageType === 3) && attachmentFileId ? (
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white border border-gray-200 max-w-xs">
+            <div className="w-11 h-11 rounded-lg bg-gray-100 animate-pulse flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="h-4 w-32 bg-gray-200 rounded animate-pulse" />
+              <div className="h-3 w-16 bg-gray-100 rounded animate-pulse mt-1" />
+            </div>
+          </div>
+        ) : (
+          <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
+            msg.isMe
+              ? 'bg-blue-600 text-white rounded-tr-none'
+              : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none'
+          }`}>
+            {msg.content}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
 
 export default function SupportTrackingPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -116,6 +287,7 @@ export default function SupportTrackingPage() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [attachmentUrlByFileId, setAttachmentUrlByFileId] = useState<Record<string, string>>({});
+  const [urlRefreshTick, setUrlRefreshTick] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [unreadNewCount, setUnreadNewCount] = useState(0);
   const [enableNewMessageSound, setEnableNewMessageSound] = useState(true);
@@ -124,8 +296,12 @@ export default function SupportTrackingPage() {
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const previousChatLengthRef = useRef(0);
   const skipAutoScrollRef = useRef(false);
+  const initialScrollDoneRef = useRef(false);
+  const needsInitialScrollRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const resolvingFileIdsRef = useRef<Set<string>>(new Set());
+  const attachmentUrlByFileIdRef = useRef(attachmentUrlByFileId);
+  attachmentUrlByFileIdRef.current = attachmentUrlByFileId;
   const chatEventSourceRef = useRef<EventSource | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [loadingDiscovery, setLoadingDiscovery] = useState(false);
@@ -145,6 +321,7 @@ export default function SupportTrackingPage() {
   const [contextClientName, setContextClientName] = useState('');
   const [contextClientEmail, setContextClientEmail] = useState('');
   const [contextClientPhone, setContextClientPhone] = useState('');
+  const [currentUserId, setCurrentUserId] = useState('');
 
   const statusOptions: Ticket['status'][] = ['DRAFT', 'AGREED', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
 
@@ -192,41 +369,32 @@ export default function SupportTrackingPage() {
     return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
   };
 
-  const parseAttachmentMeta = (metadata?: string): ChatAttachmentMeta | null => {
-    const raw = String(metadata ?? '').trim();
-    if (!raw) return null;
+  const extractFileIdFromS3Url = extractFileIdFromS3UrlStatic;
+
+  // Returns true if a presigned S3 URL has expired (or will expire within bufferMs)
+  const isPresignedUrlExpired = (url: string, bufferMs = 30_000): boolean => {
     try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return {
-        fileId: parsed.fileId == null ? (parsed.file_id == null ? undefined : String(parsed.file_id)) : String(parsed.fileId),
-        fileName: parsed.fileName == null ? undefined : String(parsed.fileName),
-        mimeType: parsed.mimeType == null ? undefined : String(parsed.mimeType),
-        size: parsed.size == null ? undefined : Number(parsed.size),
-        downloadUrl:
-          parsed.downloadUrl == null
-            ? (parsed.download_url == null ? undefined : String(parsed.download_url))
-            : String(parsed.downloadUrl),
-        dataUrl: parsed.dataUrl == null ? undefined : String(parsed.dataUrl),
-      };
+      const params = new URL(url).searchParams;
+      const dateStr = params.get('X-Amz-Date');
+      const expiresStr = params.get('X-Amz-Expires');
+      if (!dateStr || !expiresStr) return false;
+      // X-Amz-Date format: 20260307T044348Z
+      const signedAt = Date.UTC(
+        parseInt(dateStr.slice(0, 4)),
+        parseInt(dateStr.slice(4, 6)) - 1,
+        parseInt(dateStr.slice(6, 8)),
+        parseInt(dateStr.slice(9, 11)),
+        parseInt(dateStr.slice(11, 13)),
+        parseInt(dateStr.slice(13, 15)),
+      );
+      const expiresAt = signedAt + parseInt(expiresStr) * 1000;
+      return Date.now() + bufferMs >= expiresAt;
     } catch {
-      return null;
+      return false;
     }
   };
 
-  const getMessageTimestamp = useCallback((message: ChatUiMessage): number => {
-    const raw = String(message.createdAt ?? '').trim();
-    if (!raw) return 0;
-    const time = new Date(raw).getTime();
-    return Number.isNaN(time) ? 0 : time;
-  }, []);
-
-  const sortMessagesOldestFirst = useCallback((items: ChatUiMessage[]): ChatUiMessage[] => {
-    return [...items].sort((a, b) => {
-      const diff = getMessageTimestamp(a) - getMessageTimestamp(b);
-      if (diff !== 0) return diff;
-      return a.id.localeCompare(b.id);
-    });
-  }, [getMessageTimestamp]);
+  const parseAttachmentMeta = parseAttachmentMetaStatic;
 
   const mergeChatMessages = useCallback((current: ChatUiMessage[], incoming: ChatUiMessage[]): ChatUiMessage[] => {
     const merged = new Map<string, ChatUiMessage>();
@@ -236,35 +404,25 @@ export default function SupportTrackingPage() {
         merged.set(item.id, item);
       }
     });
-    return sortMessagesOldestFirst(Array.from(merged.values()));
-  }, [sortMessagesOldestFirst]);
+    return Array.from(merged.values());
+  }, []);
 
-  const formatBytes = (bytes?: number): string => {
-    if (!bytes || bytes <= 0) return '0 B';
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  };
+  const formatBytes = formatBytesStatic;
 
   const isNearChatBottom = (): boolean => {
     const container = chatScrollRef.current;
     if (!container) return true;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    return distanceFromBottom <= 80;
+    return container.scrollHeight - container.clientHeight - container.scrollTop <= 80;
   };
 
   const evaluateScrollToBottomVisibility = () => {
     const container = chatScrollRef.current;
-    if (!container) {
-      setShowScrollToBottom(false);
-      return;
-    }
-
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    const show = distanceFromBottom > 80;
-    setShowScrollToBottom(show);
-    if (!show) {
-      setUnreadNewCount(0);
+    if (!container) return;
+    const distanceToBottom = container.scrollHeight - container.clientHeight - container.scrollTop;
+    const shouldShow = distanceToBottom > 80;
+    setShowScrollToBottom((prev) => (prev === shouldShow ? prev : shouldShow));
+    if (!shouldShow) {
+      setUnreadNewCount((prev) => (prev === 0 ? prev : 0));
     }
   };
 
@@ -291,8 +449,31 @@ export default function SupportTrackingPage() {
     }
   }, [enableNewMessageSound]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCurrentUserId = async () => {
+      try {
+        const response = await fetch('/api/auth/me', { credentials: 'include' });
+        const json = await response.json().catch(() => ({}));
+        if (!response.ok || cancelled) return;
+        const userId = String(json?.user_id ?? '').trim();
+        if (userId) setCurrentUserId(userId);
+      } catch {
+      }
+    };
+
+    void loadCurrentUserId();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const mapChatMessageToUi = useCallback((raw: Record<string, unknown>): ChatUiMessage => {
     const senderId = String(raw.senderId ?? raw.sender_id ?? '').trim();
+    const normalizedSenderId = senderId.toLowerCase();
+    const normalizedCurrentUserId = currentUserId.trim().toLowerCase();
     const messageType = Number(raw.messageType ?? raw.message_type ?? 0);
     const resolveRole = (): ChatUiMessage['role'] => {
       if (messageType === 4) return 'System';
@@ -309,9 +490,11 @@ export default function SupportTrackingPage() {
     };
 
     const role = resolveRole();
+    const senderNameFromApi = String(raw.senderName ?? raw.sender_name ?? '').trim();
     const suffix = senderId ? senderId.slice(-6) : '------';
-    const senderLabel =
-      role === 'System'
+    const senderLabel = senderNameFromApi
+      ? senderNameFromApi
+      : role === 'System'
         ? 'System'
         : role === 'Client'
           ? `Client ${suffix}`
@@ -329,9 +512,9 @@ export default function SupportTrackingPage() {
       messageType,
       createdAt: String(raw.createdAt ?? raw.created_at ?? '').trim() || undefined,
       time: formatChatTime(String(raw.createdAt ?? raw.created_at ?? '')),
-      isMe: false,
+      isMe: Boolean(normalizedSenderId && normalizedCurrentUserId && normalizedSenderId === normalizedCurrentUserId),
     };
-  }, [chatRoomType, chatRoomTicketId, selectedTicket, chatRoomOrgId, contextOwnerId]);
+  }, [chatRoomType, chatRoomTicketId, selectedTicket, chatRoomOrgId, contextOwnerId, currentUserId]);
 
   const formatSlaTargetTime = (raw: { targetResolutionAt?: string; createdAt?: string; slaHours?: number }): string => {
     const resolutionRaw = String(raw.targetResolutionAt ?? '').trim();
@@ -688,7 +871,7 @@ export default function SupportTrackingPage() {
       }
 
       const incomingRaw = Array.isArray(msgJson?.messages) ? (msgJson.messages as Record<string, unknown>[]) : [];
-      setChatMessages(sortMessagesOldestFirst(incomingRaw.map((item) => mapChatMessageToUi(item))));
+      setChatMessages(incomingRaw.map((item) => mapChatMessageToUi(item)));
       setChatNextPageToken(String(msgJson?.next_page_token ?? ''));
 
       await fetch('/api/sale/chat/mark-read', {
@@ -708,11 +891,17 @@ export default function SupportTrackingPage() {
     } finally {
       setLoadingChat(false);
     }
-  }, [mapChatMessageToUi, sortMessagesOldestFirst]);
+  }, [mapChatMessageToUi]);
+
+  const pendingScrollRestoreRef = useRef<{ prevScrollHeight: number } | null>(null);
 
   const handleLoadMoreChat = async () => {
     if (!chatRoomId || !chatNextPageToken || loadingMoreChat) return;
     skipAutoScrollRef.current = true;
+    const container = chatScrollRef.current;
+    if (container) {
+      pendingScrollRestoreRef.current = { prevScrollHeight: container.scrollHeight };
+    }
     setLoadingMoreChat(true);
     try {
       const response = await fetch(
@@ -730,6 +919,24 @@ export default function SupportTrackingPage() {
     }
   };
 
+  const scrollRafRef = useRef(0);
+
+  const handleChatScroll = () => {
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0;
+      evaluateScrollToBottomVisibility();
+      const container = chatScrollRef.current;
+      if (!container) return;
+      if (loadingChat || loadingMoreChat) return;
+      if (!chatNextPageToken) return;
+
+      if (container.scrollTop <= CHAT_LOAD_MORE_TOP_THRESHOLD) {
+        void handleLoadMoreChat();
+      }
+    });
+  };
+
   const handleSendChatMessage = async () => {
     const content = messageInput.trim();
     if (!chatRoomId || !content || sendingMessage) return;
@@ -741,7 +948,7 @@ export default function SupportTrackingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           room_id: chatRoomId,
-          message_type: 'text',
+          message_type: 1,
           content,
           metadata: '{}',
         }),
@@ -750,12 +957,24 @@ export default function SupportTrackingPage() {
       if (!response.ok || !json?.message) return;
 
       const mapped = mapChatMessageToUi(json.message as Record<string, unknown>);
-      setChatMessages((prev) => mergeChatMessages(prev, [{ ...mapped, isMe: true }]));
+      setChatMessages((prev) => {
+        if (prev.some((item) => item.id === mapped.id)) return prev;
+        return [{ ...mapped, isMe: true }, ...prev];
+      });
       setMessageInput('');
     } catch {
     } finally {
       setSendingMessage(false);
     }
+  };
+
+  const handleMessageInputKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key !== 'Enter') return;
+    if (event.shiftKey) return;
+    if (event.nativeEvent.isComposing) return;
+
+    event.preventDefault();
+    void handleSendChatMessage();
   };
 
   useEffect(() => {
@@ -773,28 +992,55 @@ export default function SupportTrackingPage() {
       setUnreadNewCount(0);
       return;
     }
+    initialScrollDoneRef.current = false;
+    needsInitialScrollRef.current = false;
+    previousChatLengthRef.current = 0;
     void loadChatForTicket(selectedTicket.id);
   }, [selectedTicket?.id, loadChatForTicket]);
 
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const el = chatScrollRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior });
+    }
+  }, []);
+
+  // Restore scroll position after loading older messages (prepended at top)
+  useLayoutEffect(() => {
+    const restore = pendingScrollRestoreRef.current;
+    if (!restore) return;
+    pendingScrollRestoreRef.current = null;
+    const container = chatScrollRef.current;
+    if (!container) return;
+    const addedHeight = container.scrollHeight - restore.prevScrollHeight;
+    if (addedHeight > 0) {
+      container.scrollTop += addedHeight;
+    }
+  }, [chatMessages]);
+
+  // Auto-scroll to bottom on initial load
+  useEffect(() => {
+    if (!loadingChat && chatMessages.length > 0 && !initialScrollDoneRef.current) {
+      initialScrollDoneRef.current = true;
+      requestAnimationFrame(() => scrollToBottom('auto'));
+    }
+  }, [loadingChat, chatMessages.length, scrollToBottom]);
+
+  // Handle scroll for live incoming messages (after initial load)
   useEffect(() => {
     const currentLength = chatMessages.length;
     const previousLength = previousChatLengthRef.current;
     const hasNewMessages = currentLength > previousLength;
     const addedCount = Math.max(0, currentLength - previousLength);
 
-    if (hasNewMessages) {
+    if (hasNewMessages && initialScrollDoneRef.current) {
       if (skipAutoScrollRef.current) {
         skipAutoScrollRef.current = false;
       } else {
         const nearBottom = isNearChatBottom();
-        if (nearBottom || previousLength === 0) {
-          const behavior: ScrollBehavior = previousLength === 0 ? 'auto' : 'smooth';
-          if (chatBottomRef.current) {
-            chatBottomRef.current.scrollIntoView({ behavior, block: 'end' });
-          } else if (chatScrollRef.current) {
-            chatScrollRef.current.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior });
-          }
+        if (nearBottom) {
           setUnreadNewCount(0);
+          requestAnimationFrame(() => scrollToBottom('auto'));
         } else {
           setUnreadNewCount((prev) => prev + addedCount);
           playNewMessageSound();
@@ -803,11 +1049,9 @@ export default function SupportTrackingPage() {
     }
 
     previousChatLengthRef.current = currentLength;
-  }, [chatMessages, playNewMessageSound]);
+  }, [chatMessages, playNewMessageSound, scrollToBottom]);
 
-  useEffect(() => {
-    evaluateScrollToBottomVisibility();
-  }, [chatMessages, loadingChat]);
+
 
   useEffect(() => {
     if (chatEventSourceRef.current) {
@@ -824,7 +1068,10 @@ export default function SupportTrackingPage() {
       try {
         const payload = JSON.parse(event.data) as Record<string, unknown>;
         const mapped = mapChatMessageToUi(payload);
-        setChatMessages((prev) => mergeChatMessages(prev, [mapped]));
+        setChatMessages((prev) => {
+          if (prev.some((item) => item.id === mapped.id)) return prev;
+          return [mapped, ...prev];
+        });
       } catch {
       }
     };
@@ -838,40 +1085,72 @@ export default function SupportTrackingPage() {
         chatEventSourceRef.current = null;
       }
     };
-  }, [chatRoomId, chatRoomOrgId, chatRoomType, chatRoomTicketId, mapChatMessageToUi, mergeChatMessages]);
+  }, [chatRoomId, chatRoomOrgId, chatRoomType, chatRoomTicketId, mapChatMessageToUi]);
+
+  // Ticker: every 60s nudge the URL-resolution effect so expired presigned URLs get refreshed
+  useEffect(() => {
+    const interval = setInterval(() => setUrlRefreshTick((t) => t + 1), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
+    const currentUrls = attachmentUrlByFileIdRef.current;
     const fileIds = new Set<string>();
     chatMessages.forEach((message) => {
       const meta = parseAttachmentMeta(message.metadata);
       const fileId = String(meta?.fileId ?? '').trim();
-      const urlInMeta = String(meta?.downloadUrl ?? '').trim();
+      const urlInMeta = String(meta?.url ?? '').trim();
+
       if (fileId && !urlInMeta) {
-        fileIds.add(fileId);
+        const cached = currentUrls[fileId];
+        if (!cached || isPresignedUrlExpired(cached)) fileIds.add(fileId);
+      }
+
+      if (urlInMeta && isPresignedUrlExpired(urlInMeta)) {
+        const fid = extractFileIdFromS3Url(urlInMeta);
+        if (fid) {
+          const cached = currentUrls[fid];
+          if (!cached || isPresignedUrlExpired(cached)) fileIds.add(fid);
+        }
       }
     });
 
-    fileIds.forEach((fileId) => {
-      if (attachmentUrlByFileId[fileId]) return;
-      if (resolvingFileIdsRef.current.has(fileId)) return;
-      resolvingFileIdsRef.current.add(fileId);
-
-      void fetch(`/api/sale/chat/download-url?file_id=${encodeURIComponent(fileId)}`)
-        .then((response) => response.json().catch(() => ({})).then((json) => ({ ok: response.ok, json })))
-        .then(({ ok, json }) => {
-          if (!ok) return;
-          const downloadUrl = String(json?.download_url ?? '').trim();
-          if (!downloadUrl) return;
-          setAttachmentUrlByFileId((prev) => ({ ...prev, [fileId]: downloadUrl }));
-        })
-        .catch(() => {
-          addToast('Không thể tải link tệp đính kèm', { type: 'error' });
-        })
-        .finally(() => {
-          resolvingFileIdsRef.current.delete(fileId);
-        });
+    Object.entries(currentUrls).forEach(([fid, url]) => {
+      if (isPresignedUrlExpired(url)) fileIds.add(fid);
     });
-  }, [addToast, attachmentUrlByFileId, chatMessages]);
+
+    const toResolve = Array.from(fileIds).filter((id) => !resolvingFileIdsRef.current.has(id));
+    if (toResolve.length === 0) return;
+    toResolve.forEach((id) => resolvingFileIdsRef.current.add(id));
+
+    void Promise.allSettled(
+      toResolve.map((fileId) =>
+        fetch(`/api/sale/chat/download-url?file_id=${encodeURIComponent(fileId)}`)
+          .then((r) => r.json().catch(() => ({})).then((j) => ({ ok: r.ok, json: j, fileId })))
+          .then(({ ok, json, fileId: fid }) => {
+            resolvingFileIdsRef.current.delete(fid);
+            if (!ok) return null;
+            const downloadUrl = String(json?.download_url ?? '').trim();
+            return downloadUrl ? { fid, downloadUrl } : null;
+          })
+          .catch(() => {
+            resolvingFileIdsRef.current.delete(fileId);
+            return null;
+          })
+      )
+    ).then((results) => {
+      const updates: Record<string, string> = {};
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) {
+          updates[r.value.fid] = r.value.downloadUrl;
+        }
+      }
+      if (Object.keys(updates).length > 0) {
+        setAttachmentUrlByFileId((prev) => ({ ...prev, ...updates }));
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatMessages, urlRefreshTick]);
 
   const handleSendAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -888,43 +1167,86 @@ export default function SupportTrackingPage() {
     const isImage = file.type.startsWith('image/');
     setUploadingAttachment(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      if (effectiveContextId) {
-        formData.append('organization_id', effectiveContextId);
-      }
-
-      const uploadResponse = await fetch('/api/sale/chat/upload', {
+      // Step 1: Get presigned upload URL from backend
+      // Sale/Tech/Admin (system users) do NOT send organization_id for file/image uploads
+      const getUrlRes = await fetch('/api/sale/chat/get-upload-url', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: file.name,
+          mime_type: file.type || 'application/octet-stream',
+          size: file.size,
+        }),
       });
-      const uploadJson = await uploadResponse.json().catch(() => ({}));
-      if (!uploadResponse.ok || !uploadJson?.file_id) {
-        setFlowMessage(uploadJson?.error || 'Không upload được tệp đính kèm.');
-        addToast(uploadJson?.error || 'Upload tệp thất bại', { type: 'error' });
+      const getUrlJson = await getUrlRes.json().catch(() => ({}));
+      if (!getUrlRes.ok || !getUrlJson?.upload_url || !getUrlJson?.file_id) {
+        setFlowMessage(getUrlJson?.error || 'Không lấy được link upload.');
+        addToast(getUrlJson?.error || 'Lấy link upload thất bại', { type: 'error' });
         return;
       }
 
-      const fileId = String(uploadJson.file_id);
-      const downloadUrl = String(uploadJson.download_url ?? '').trim();
+      const uploadUrl = String(getUrlJson.upload_url);
+      const fileId = String(getUrlJson.file_id);
+
+      // Step 2: Upload file directly to S3 using the presigned URL
+      const s3Res = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+      if (!s3Res.ok) {
+        setFlowMessage('Upload tệp lên storage thất bại.');
+        addToast('Upload tệp lên storage thất bại', { type: 'error' });
+        return;
+      }
+
+      // Step 3: Register upload with backend to confirm success
+      const registerRes = await fetch('/api/sale/chat/register-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_id: fileId,
+          filename: file.name,
+          mime_type: file.type || 'application/octet-stream',
+          size: file.size,
+        }),
+      });
+      const registerJson = await registerRes.json().catch(() => ({}));
+      if (!registerRes.ok || !registerJson?.success) {
+        setFlowMessage(registerJson?.error || 'Đăng ký upload thất bại.');
+        addToast(registerJson?.error || 'Đăng ký upload thất bại', { type: 'error' });
+        return;
+      }
+
+      // Step 4: Get download URL for the uploaded file
+      let downloadUrl = '';
+      const dlRes = await fetch(`/api/sale/chat/download-url?file_id=${encodeURIComponent(fileId)}`);
+      const dlJson = await dlRes.json().catch(() => ({}));
+      if (dlRes.ok && dlJson?.download_url) {
+        downloadUrl = String(dlJson.download_url).trim();
+      }
       if (downloadUrl) {
         setAttachmentUrlByFileId((prev) => ({ ...prev, [fileId]: downloadUrl }));
       }
 
-      const metadata = JSON.stringify({
-        fileId,
-        fileName: file.name,
-        mimeType: file.type,
-        size: file.size,
-        downloadUrl,
-      });
+      // Step 5: Send chat message with file metadata
+      const metadata = isImage
+        ? JSON.stringify({
+            url: downloadUrl,
+          })
+        : JSON.stringify({
+            url: downloadUrl,
+            file_name: file.name,
+            file_size: file.size,
+            mime_type: file.type || 'application/octet-stream',
+          });
 
       const response = await fetch('/api/sale/chat/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           room_id: chatRoomId,
-          message_type: isImage ? 'image' : 'file',
+          message_type: isImage ? 2 : 3,
           content: file.name,
           metadata,
         }),
@@ -1051,12 +1373,26 @@ export default function SupportTrackingPage() {
     }
   };
 
-  // Filter tickets
   const filteredTickets = tickets.filter(t => 
     t.code.toLowerCase().includes(search.toLowerCase()) || 
     t.client.toLowerCase().includes(search.toLowerCase()) ||
     t.title.toLowerCase().includes(search.toLowerCase())
   );
+
+  const processedMessages = useMemo(() => {
+    return chatMessages.map((msg) => {
+      const attachment = parseAttachmentMeta(msg.metadata);
+      const attachmentFileId = String(attachment?.fileId ?? '').trim();
+      const fileIdFromMetaUrl = attachment?.url ? extractFileIdFromS3Url(attachment.url) : '';
+      const attachmentUrl = String(
+        (fileIdFromMetaUrl && attachmentUrlByFileId[fileIdFromMetaUrl])
+          ? attachmentUrlByFileId[fileIdFromMetaUrl]
+          : attachment?.url ?? attachment?.dataUrl ?? (attachmentFileId ? attachmentUrlByFileId[attachmentFileId] ?? '' : '')
+      );
+      const attachmentFileName = String(attachment?.fileName ?? msg.content ?? 'attachment');
+      return { msg, attachmentUrl, attachmentFileName, attachmentFileId, attachmentSize: attachment?.size };
+    }).reverse();
+  }, [chatMessages, attachmentUrlByFileId]);
 
   const handleCreateTicket = async (data: { subject: string; client: string; priority: string }) => {
     if (!selectedCategoryId) {
@@ -1566,8 +1902,9 @@ export default function SupportTrackingPage() {
             <div className="relative flex-1 min-h-0 bg-white">
             <div
               ref={chatScrollRef}
-              onScroll={evaluateScrollToBottomVisibility}
-              className="absolute inset-0 overflow-y-auto p-6 space-y-6"
+              onScroll={handleChatScroll}
+              style={{ willChange: 'scroll-position' }}
+              className="absolute inset-0 overflow-y-auto p-6 flex flex-col gap-6"
             >
                 {loadingChat ? (
                   <div className="text-sm text-gray-500">Đang tải hội thoại...</div>
@@ -1577,83 +1914,19 @@ export default function SupportTrackingPage() {
                   <div className="text-sm text-gray-500">Chưa có tin nhắn trong room này.</div>
                 ) : (
                   <>
-                    {chatMessages.map((msg) => {
-                      const attachment = parseAttachmentMeta(msg.metadata);
-                      const attachmentFileId = String(attachment?.fileId ?? '').trim();
-                      const attachmentUrl = String(
-                        attachment?.downloadUrl ?? attachment?.dataUrl ?? (attachmentFileId ? attachmentUrlByFileId[attachmentFileId] ?? '' : '')
-                      );
-                      const attachmentFileName = String(attachment?.fileName ?? msg.content ?? 'attachment');
-
-                      return (
-                        <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[80%] ${msg.isMe ? 'order-2' : 'order-2'}`}>
-                            <div className={`flex items-baseline gap-2 mb-1 ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
-                              <span className={`text-xs font-bold ${
-                                msg.role === 'Client' ? 'text-gray-900' :
-                                msg.role === 'Sale' ? 'text-blue-600' :
-                                msg.role === 'Tech' ? 'text-purple-600' :
-                                'text-gray-500'
-                              }`}>
-                                {msg.senderLabel}
-                                <span className="text-gray-400 font-normal ml-1">({msg.role})</span>
-                              </span>
-                              <span className="text-xs text-gray-400">{msg.time}</span>
-                            </div>
-                            <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                              msg.isMe
-                                ? 'bg-blue-600 text-white rounded-tr-none'
-                                : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none'
-                            }`}>
-                              {msg.messageType === 2 && attachmentUrl ? (
-                                <div className="space-y-2">
-                                  <Image
-                                    src={attachmentUrl}
-                                    alt={msg.content || 'image'}
-                                    width={800}
-                                    height={450}
-                                    className="max-h-56 w-auto rounded-lg border border-white/30"
-                                  />
-                                  {msg.content && <p>{msg.content}</p>}
-                                </div>
-                              ) : msg.messageType === 2 && attachmentFileId ? (
-                                <div className="space-y-2">
-                                  <div className={`h-40 w-60 rounded-lg animate-pulse ${msg.isMe ? 'bg-blue-500/60' : 'bg-gray-200'}`} />
-                                  <p className={`${msg.isMe ? 'text-blue-100' : 'text-gray-500'}`}>Đang tải ảnh...</p>
-                                </div>
-                              ) : msg.messageType === 3 && attachmentUrl ? (
-                                <a
-                                  href={attachmentUrl}
-                                  download={attachmentFileName}
-                                  className={`underline font-medium ${msg.isMe ? 'text-white' : 'text-blue-700'}`}
-                                >
-                                  {String(attachment?.fileName ?? msg.content ?? 'Tệp đính kèm')}
-                                  <span className={`ml-2 text-xs ${msg.isMe ? 'text-blue-100' : 'text-gray-500'}`}>
-                                    {formatBytes(attachment?.size)}
-                                  </span>
-                                </a>
-                              ) : (msg.messageType === 2 || msg.messageType === 3) && attachmentFileId ? (
-                                <div className="space-y-2">
-                                  <div className={`h-4 w-48 rounded animate-pulse ${msg.isMe ? 'bg-blue-500/60' : 'bg-gray-200'}`} />
-                                  <span className={`${msg.isMe ? 'text-blue-100' : 'text-gray-500'}`}>Đang tải tệp đính kèm...</span>
-                                </div>
-                              ) : (
-                                msg.content
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    <div className="flex justify-center pt-2">
-                      <button
-                        onClick={() => void handleLoadMoreChat()}
-                        disabled={!chatNextPageToken || loadingMoreChat}
-                        className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 text-gray-700 bg-gray-50 disabled:opacity-50"
-                      >
-                        {loadingMoreChat ? 'Loading...' : chatNextPageToken ? 'Load older messages' : 'No more messages'}
-                      </button>
+                    <div className="flex justify-center py-2 text-xs text-gray-400">
+                      {loadingMoreChat ? 'Loading older messages...' : chatNextPageToken ? 'Scroll up to load older messages' : 'No more messages'}
                     </div>
+                    {processedMessages.map((pm) => (
+                      <ChatMessageItem
+                        key={pm.msg.id}
+                        msg={pm.msg}
+                        attachmentUrl={pm.attachmentUrl}
+                        attachmentFileName={pm.attachmentFileName}
+                        attachmentFileId={pm.attachmentFileId}
+                        attachmentSize={pm.attachmentSize}
+                      />
+                    ))}
                     <div ref={chatBottomRef} />
                   </>
                 )}
@@ -1661,7 +1934,7 @@ export default function SupportTrackingPage() {
             {showScrollToBottom && (
               <button
                 onClick={() => {
-                  chatBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                  scrollToBottom('smooth');
                   setUnreadNewCount(0);
                 }}
                 className="absolute right-4 bottom-4 inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
@@ -1708,12 +1981,13 @@ export default function SupportTrackingPage() {
                 >
                         <Paperclip className="w-5 h-5" />
                     </button>
-                    <input 
-                        type="text" 
-                        placeholder="Type message to coordinate..." 
-                        className="flex-1 bg-transparent border-none focus:outline-none text-sm py-1"
-                        value={messageInput}
-                        onChange={(e) => setMessageInput(e.target.value)}
+                    <textarea
+                      placeholder="Type message to coordinate..."
+                      className="flex-1 bg-transparent border-none focus:outline-none text-sm py-1 resize-none max-h-28"
+                      rows={1}
+                      value={messageInput}
+                      onChange={(e) => setMessageInput(e.target.value)}
+                      onKeyDown={handleMessageInputKeyDown}
                     />
                       <button
                         onClick={() => void handleSendChatMessage()}

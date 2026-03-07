@@ -6,6 +6,16 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'http',
+        hostname: '192.168.117.217',
+        port: '9000',
+        pathname: '/saas-storage/**',
+      },
+    ],
+  },
 };
 
 export default nextConfig;

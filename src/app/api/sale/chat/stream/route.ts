@@ -30,6 +30,8 @@ function normalizeMessage(raw: unknown) {
     id: String(obj.id ?? ''),
     roomId: String(obj.roomId ?? obj.room_id ?? ''),
     senderId: String(obj.senderId ?? obj.sender_id ?? ''),
+    senderName: String(obj.senderName ?? obj.sender_name ?? ''),
+    senderAvatarUrl: String(obj.senderAvatarUrl ?? obj.sender_avatar_url ?? ''),
     messageType: Number(obj.messageType ?? obj.message_type ?? 0),
     content: String(obj.content ?? ''),
     metadata: obj.metadata == null ? '' : String(obj.metadata),
