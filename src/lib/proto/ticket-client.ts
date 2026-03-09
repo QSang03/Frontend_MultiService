@@ -464,3 +464,137 @@ export async function protoListTickets(params?: {
     return { success: false, error: message };
   }
 }
+
+// CalculateMargin
+export async function protoCalculateMargin(payload: {
+  ticketId: string;
+  quotationId: string;
+  totalAmount: string;
+  items: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available.' };
+  }
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.CalculateMarginRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        quotationId: payload.quotationId,
+        totalAmount: payload.totalAmount,
+        items: payload.items,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).calculateMargin(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Calculate margin failed';
+    return { success: false, error: message };
+  }
+}
+
+// RequestInternalReview
+export async function protoRequestInternalReview(payload: {
+  ticketId: string;
+  quotationId: string;
+  note: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available.' };
+  }
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.RequestInternalReviewRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        quotationId: payload.quotationId,
+        note: payload.note,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).requestInternalReview(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Request internal review failed';
+    return { success: false, error: message };
+  }
+}
+
+// SendQuotationToClient
+export async function protoSendQuotationToClient(payload: {
+  quotationId: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available.' };
+  }
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.SendQuotationToClientRequestSchema as unknown as DescMessage, {
+        quotationId: payload.quotationId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).sendQuotationToClient(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Send quotation to client failed';
+    return { success: false, error: message };
+  }
+}
+
+// GetTicketApprovalWorkflow
+export async function protoGetTicketApprovalWorkflow(payload: {
+  ticketId: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available.' };
+  }
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.GetTicketApprovalWorkflowRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).getTicketApprovalWorkflow(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get ticket approval workflow failed';
+    return { success: false, error: message };
+  }
+}
+
+// ListTicketActivities
+export async function protoListTicketActivities(payload: {
+  ticketId: string;
+  pageSize?: number;
+  pageToken?: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available.' };
+  }
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.ListTicketActivitiesRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        pageSize: payload.pageSize ?? 20,
+        pageToken: payload.pageToken ?? '',
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).listTicketActivities(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'List ticket activities failed';
+    return { success: false, error: message };
+  }
+}

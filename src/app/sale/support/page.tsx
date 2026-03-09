@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, mem
 import { useRouter } from 'next/navigation';
 import { 
   Search, Plus, MoreVertical, Paperclip, Send, ChevronDown, Volume2, VolumeX,
-  Clock, CheckCircle2 
+  Clock, CheckCircle2, Calculator, FileText, SendHorizontal, Eye, Activity, AlertTriangle, Loader2
 } from 'lucide-react';
 import CreateTicketModal from '@/components/CreateTicketModal';
 import { useToast } from '@/components/ui';
@@ -93,6 +93,35 @@ type ChatAttachmentMeta = {
   size?: number;
   url?: string;
   dataUrl?: string;
+};
+
+type MarginResult = {
+  grossMarginPercent: string;
+  netProfit: string;
+  totalCost: string;
+};
+
+type ApprovalStep = {
+  stepName?: string;
+  approver?: string;
+  status?: string;
+  approvedAt?: string;
+  note?: string;
+};
+
+type TicketActivityItem = {
+  id?: string;
+  action?: string;
+  actorId?: string;
+  actorName?: string;
+  detail?: string;
+  createdAt?: string;
+};
+
+type QuotationItemRow = {
+  description: string;
+  quantity: string;
+  unit_price: string;
 };
 
 /* ── helpers moved outside component to avoid re-creation ── */
@@ -310,8 +339,16 @@ export default function SupportTrackingPage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState('');
   const [flowMessage, setFlowMessage] = useState('');
-  const [, setAssets] = useState<AssetOption[]>([]);
+  const [assets, setAssets] = useState<AssetOption[]>([]);
   const [selectedAssetId, setSelectedAssetId] = useState('');
+
+  // modal visibility
+  const [showModalCategories, setShowModalCategories] = useState(false);
+  const [showModalAssets, setShowModalAssets] = useState(false);
+  const [showModalSla, setShowModalSla] = useState(false);
+  const [showModalPricing, setShowModalPricing] = useState(false);
+  const [showModalAgreed, setShowModalAgreed] = useState(false);
+  const [showModalUc3, setShowModalUc3] = useState(false);
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [slaPreview, setSlaPreview] = useState<SlaPreview | null>(null);
   const [pricingPreview, setPricingPreview] = useState<PricingPreview | null>(null);
@@ -322,6 +359,23 @@ export default function SupportTrackingPage() {
   const [contextClientEmail, setContextClientEmail] = useState('');
   const [contextClientPhone, setContextClientPhone] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
+
+  // UC-3 Quoting & Margin state
+  const [quotationId, setQuotationId] = useState('');
+  const [quotationTotalAmount, setQuotationTotalAmount] = useState('');
+  const [quotationTaxAmount, setQuotationTaxAmount] = useState('0');
+  const [quotationNote, setQuotationNote] = useState('');
+  const [quotationItemRows, setQuotationItemRows] = useState<QuotationItemRow[]>([]);
+  const [marginResult, setMarginResult] = useState<MarginResult | null>(null);
+  const [loadingMargin, setLoadingMargin] = useState(false);
+  const [loadingSubmitQuotation, setLoadingSubmitQuotation] = useState(false);
+  const [loadingRequestReview, setLoadingRequestReview] = useState(false);
+  const [loadingSendToClient, setLoadingSendToClient] = useState(false);
+  const [approvalSteps, setApprovalSteps] = useState<ApprovalStep[]>([]);
+  const [loadingApproval, setLoadingApproval] = useState(false);
+  const [ticketActivities, setTicketActivities] = useState<TicketActivityItem[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(false);
+  const [reviewNote, setReviewNote] = useState('');
 
   const statusOptions: Ticket['status'][] = ['DRAFT', 'AGREED', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'];
 
@@ -406,8 +460,6 @@ export default function SupportTrackingPage() {
     });
     return Array.from(merged.values());
   }, []);
-
-  const formatBytes = formatBytesStatic;
 
   const isNearChatBottom = (): boolean => {
     const container = chatScrollRef.current;
@@ -602,9 +654,6 @@ export default function SupportTrackingPage() {
       return '';
     }
   };
-
-  const effectiveSelectedCategoryId = selectedTicket ? getTicketCategoryId(selectedTicket) || selectedCategoryId : selectedCategoryId;
-  const selectedCategory = categories.find((category) => category.id === effectiveSelectedCategoryId);
 
   const loadTicketsPage = async (opts?: { pageToken?: string; append?: boolean; orgId?: string; status?: 'ALL' | Ticket['status'] }) => {
     const pageToken = opts?.pageToken ?? '';
@@ -1392,7 +1441,7 @@ export default function SupportTrackingPage() {
       const attachmentFileName = String(attachment?.fileName ?? msg.content ?? 'attachment');
       return { msg, attachmentUrl, attachmentFileName, attachmentFileId, attachmentSize: attachment?.size };
     }).reverse();
-  }, [chatMessages, attachmentUrlByFileId]);
+  }, [chatMessages, attachmentUrlByFileId, extractFileIdFromS3Url, parseAttachmentMeta]);
 
   const handleCreateTicket = async (data: { subject: string; client: string; priority: string }) => {
     if (!selectedCategoryId) {
@@ -1622,6 +1671,185 @@ export default function SupportTrackingPage() {
     }
   };
 
+  // ──── UC-3: Quoting & Margin handlers ────
+
+  const handleSubmitQuotation = async () => {
+    if (!selectedTicket) return;
+    setLoadingSubmitQuotation(true);
+    try {
+      const response = await fetch('/api/sale/quotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticket_id: selectedTicket.id,
+          total_amount: quotationTotalAmount || '0',
+          tax_amount: quotationTaxAmount || '0',
+          currency: 'VND',
+          note: quotationNote,
+          items: JSON.stringify(quotationItemRows.map(r => ({
+            description: r.description,
+            quantity: r.quantity,
+            unit_price: r.unit_price,
+            total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
+            metadata: {},
+          }))),
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok) {
+        setFlowMessage(json?.error || 'SubmitQuotation thất bại.');
+        addToast(json?.error || 'SubmitQuotation thất bại', { type: 'error' });
+        return;
+      }
+      const q = json.quotation as Record<string, unknown>;
+      const newQid = String(q?.id ?? '');
+      if (newQid) setQuotationId(newQid);
+      setFlowMessage(`Đã tạo báo giá: ${newQid}`);
+      addToast('Tạo báo giá thành công', { type: 'success' });
+    } catch {
+      setFlowMessage('Lỗi kết nối khi tạo báo giá.');
+    } finally {
+      setLoadingSubmitQuotation(false);
+    }
+  };
+
+  const handleCalculateMargin = async () => {
+    if (!selectedTicket) return;
+    setLoadingMargin(true);
+    try {
+      const response = await fetch('/api/sale/quotations/calculate-margin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticket_id: selectedTicket.id,
+          quotation_id: quotationId,
+          total_amount: quotationTotalAmount || '0',
+          items: JSON.stringify(quotationItemRows.map(r => ({
+            description: r.description,
+            quantity: r.quantity,
+            unit_price: r.unit_price,
+            total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
+            metadata: {},
+          }))),
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok) {
+        setFlowMessage(json?.error || 'CalculateMargin thất bại.');
+        return;
+      }
+      setMarginResult({
+        grossMarginPercent: String(json.gross_margin_percent ?? '0'),
+        netProfit: String(json.net_profit ?? '0'),
+        totalCost: String(json.total_cost ?? '0'),
+      });
+      setFlowMessage('CalculateMargin thành công.');
+    } catch {
+      setFlowMessage('Lỗi kết nối khi tính margin.');
+    } finally {
+      setLoadingMargin(false);
+    }
+  };
+
+  const handleRequestInternalReview = async () => {
+    if (!selectedTicket || !quotationId) {
+      setFlowMessage('Cần tạo báo giá trước khi xin duyệt.');
+      return;
+    }
+    setLoadingRequestReview(true);
+    try {
+      const response = await fetch('/api/sale/quotations/request-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticket_id: selectedTicket.id,
+          quotation_id: quotationId,
+          note: reviewNote,
+        }),
+      });
+      const json = await response.json();
+      if (!response.ok) {
+        setFlowMessage(json?.error || 'RequestInternalReview thất bại.');
+        addToast(json?.error || 'Xin duyệt thất bại', { type: 'error' });
+        return;
+      }
+      setFlowMessage('Đã gửi yêu cầu duyệt nội bộ thành công.');
+      addToast('Đã gửi yêu cầu duyệt nội bộ', { type: 'success' });
+      setReviewNote('');
+    } catch {
+      setFlowMessage('Lỗi kết nối khi xin duyệt.');
+    } finally {
+      setLoadingRequestReview(false);
+    }
+  };
+
+  const handleSendQuotationToClient = async () => {
+    if (!quotationId) {
+      setFlowMessage('Cần tạo báo giá trước khi gửi cho khách.');
+      return;
+    }
+    setLoadingSendToClient(true);
+    try {
+      const response = await fetch('/api/sale/quotations/send-to-client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quotation_id: quotationId }),
+      });
+      const json = await response.json();
+      if (!response.ok) {
+        setFlowMessage(json?.error || 'SendQuotationToClient thất bại.');
+        addToast(json?.error || 'Gửi báo giá cho khách thất bại', { type: 'error' });
+        return;
+      }
+      setFlowMessage('Đã gửi báo giá cho khách hàng thành công.');
+      addToast('Đã gửi báo giá cho khách', { type: 'success' });
+    } catch {
+      setFlowMessage('Lỗi kết nối khi gửi báo giá.');
+    } finally {
+      setLoadingSendToClient(false);
+    }
+  };
+
+  const handleGetApprovalWorkflow = async () => {
+    if (!selectedTicket) return;
+    setLoadingApproval(true);
+    try {
+      const response = await fetch(`/api/sale/quotations/approval-workflow?ticket_id=${encodeURIComponent(selectedTicket.id)}`);
+      const json = await response.json();
+      if (!response.ok) {
+        setFlowMessage(json?.error || 'GetTicketApprovalWorkflow thất bại.');
+        return;
+      }
+      const steps = Array.isArray(json?.steps) ? json.steps as ApprovalStep[] : [];
+      setApprovalSteps(steps);
+      setFlowMessage(`ApprovalWorkflow: ${steps.length} bước.`);
+    } catch {
+      setFlowMessage('Lỗi kết nối khi tải approval workflow.');
+    } finally {
+      setLoadingApproval(false);
+    }
+  };
+
+  const handleListActivities = async () => {
+    if (!selectedTicket) return;
+    setLoadingActivities(true);
+    try {
+      const response = await fetch(`/api/sale/quotations/activities?ticket_id=${encodeURIComponent(selectedTicket.id)}&page_size=20`);
+      const json = await response.json();
+      if (!response.ok) {
+        setFlowMessage(json?.error || 'ListTicketActivities thất bại.');
+        return;
+      }
+      const activities = Array.isArray(json?.activities) ? json.activities as TicketActivityItem[] : [];
+      setTicketActivities(activities);
+      setFlowMessage(`Loaded ${activities.length} activities (total: ${json.total_count ?? '?'}).`);
+    } catch {
+      setFlowMessage('Lỗi kết nối khi tải activities.');
+    } finally {
+      setLoadingActivities(false);
+    }
+  };
+
   return (
     <div className="flex h-[calc(100vh-theme(spacing.6))] gap-6 p-6">
       {/* Left Pane: Active Tickets List */}
@@ -1773,22 +2001,22 @@ export default function SupportTrackingPage() {
 
             <div className="px-6 py-3 border-b border-gray-100 bg-white flex flex-wrap gap-2">
               <button
-                onClick={handleLoadDiscovery}
+                onClick={() => { void handleLoadDiscovery(); setShowModalCategories(true); }}
                 disabled={loadingDiscovery}
                 className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-200 text-gray-700 bg-gray-50 disabled:opacity-50"
               >
-                ListCategories / ListServices
+                {loadingDiscovery ? 'Loading...' : 'ListCategories / ListServices'}
               </button>
               <button
-                onClick={handleListAssets}
+                onClick={() => { void handleListAssets(); setShowModalAssets(true); }}
                 disabled={loadingAssets || !hasEffectiveContextId}
                 title={!hasEffectiveContextId ? 'Thiếu owner/org id. Hãy chọn khách từ CRM để prefill context.' : undefined}
                 className="px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-200 text-emerald-700 bg-emerald-50 disabled:opacity-50"
               >
-                {loadingAssets ? 'Loading assets...' : 'ListAssets'}
+                {loadingAssets ? 'Loading...' : 'ListAssets'}
               </button>
               <button
-                onClick={handlePreviewSla}
+                onClick={() => { void handlePreviewSla(); setShowModalSla(true); }}
                 disabled={
                   loadingSlaPreview ||
                   !hasEffectiveContextId ||
@@ -1803,22 +2031,28 @@ export default function SupportTrackingPage() {
                 }
                 className="px-3 py-1.5 text-xs font-medium rounded-md border border-indigo-200 text-indigo-700 bg-indigo-50 disabled:opacity-50"
               >
-                {loadingSlaPreview ? 'Previewing SLA...' : 'PreviewSLA'}
+                {loadingSlaPreview ? 'Loading...' : 'PreviewSLA'}
               </button>
               <button
-                onClick={handlePreviewPricingRules}
+                onClick={() => { void handlePreviewPricingRules(); setShowModalPricing(true); }}
                 disabled={loadingPricingPreview || !hasEffectiveContextId}
                 title={!hasEffectiveContextId ? 'Thiếu owner/org id. Hãy chọn khách từ CRM để prefill context.' : undefined}
                 className="px-3 py-1.5 text-xs font-medium rounded-md border border-amber-200 text-amber-700 bg-amber-50 disabled:opacity-50"
               >
-                {loadingPricingPreview ? 'Previewing Pricing...' : 'PreviewPricingRules'}
+                {loadingPricingPreview ? 'Loading...' : 'PreviewPricingRules'}
               </button>
               <button
-                onClick={() => handleStatusChange(selectedTicket.id, 'AGREED')}
+                onClick={() => setShowModalAgreed(true)}
                 disabled={selectedTicket.status === 'AGREED'}
                 className="px-3 py-1.5 text-xs font-medium rounded-md border border-blue-200 text-blue-700 bg-blue-50 disabled:opacity-50"
               >
                 Chuyển AGREED
+              </button>
+              <button
+                onClick={() => setShowModalUc3(true)}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100"
+              >
+                UC-3 Quoting
               </button>
             </div>
 
@@ -1848,55 +2082,7 @@ export default function SupportTrackingPage() {
               )}
             </div>
 
-            {selectedCategory?.attributesSchema && (
-              <div className="px-6 py-3 border-b border-gray-100 bg-amber-50">
-                <p className="text-xs font-semibold text-amber-800 mb-1">attributes_schema (Discovery)</p>
-                <pre className="whitespace-pre-wrap break-all text-[11px] text-amber-700">{selectedCategory.attributesSchema}</pre>
-              </div>
-            )}
 
-            {flowMessage && (
-              <div className="px-6 py-2 border-b border-gray-100 bg-blue-50 text-blue-700 text-xs">
-                {flowMessage}
-              </div>
-            )}
-
-            {(slaPreview || pricingPreview) && (
-              <div className="px-6 py-3 border-b border-gray-100 bg-white grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-3">
-                  <p className="text-xs font-semibold text-indigo-800 mb-1">SLA Preview</p>
-                  {slaPreview ? (
-                    <div className="text-xs text-indigo-700 space-y-1">
-                      <p>Source: {slaPreview.appliedSource}</p>
-                      <p>Business Hours: {slaPreview.businessHours}</p>
-                      <p>Response: {slaPreview.targetResponseMinutes} phút</p>
-                      <p>Resolution: {slaPreview.targetResolutionMinutes} phút</p>
-                      <p>Risk: {slaPreview.breachRisk}</p>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-indigo-600">Chưa có dữ liệu SLA preview.</p>
-                  )}
-                </div>
-
-                <div className="rounded-lg border border-amber-100 bg-amber-50 p-3">
-                  <p className="text-xs font-semibold text-amber-800 mb-1">Pricing Rules Preview</p>
-                  {pricingPreview ? (
-                    <div className="text-xs text-amber-700 space-y-1">
-                      <p>Base: {pricingPreview.baseAmount.toLocaleString()} ₫</p>
-                      <p>Total K: x{pricingPreview.totalMultiplier.toFixed(2)}</p>
-                      <p>Estimated: {pricingPreview.estimatedAmount.toLocaleString()} ₫</p>
-                      <div className="pt-1">
-                        {pricingPreview.breakdown.map((rule) => (
-                          <p key={rule.code}>• {rule.label}: x{rule.k.toFixed(2)}</p>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-amber-600">Chưa có dữ liệu pricing preview.</p>
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* Chat Area */}
             <div className="relative flex-1 min-h-0 bg-white">
@@ -2006,6 +2192,412 @@ export default function SupportTrackingPage() {
         onClose={() => setIsCreateModalOpen(false)}
         onCreate={handleCreateTicket}
       />
+
+      {/* ── Modal 1: ListCategories / ListServices ── */}
+      {showModalCategories && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowModalCategories(false); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h2 className="text-sm font-bold text-gray-900">Danh mục dịch vụ</h2>
+              <button onClick={() => setShowModalCategories(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {loadingDiscovery ? (
+                <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Đang tải...</p>
+              ) : categories.length === 0 ? (
+                <p className="text-sm text-gray-400">Chưa có dữ liệu. Thử bấm nút tải lại.</p>
+              ) : (
+                <div className="space-y-2">
+                  {categories.map((cat) => (
+                    <div key={cat.id} className={`rounded-lg border p-3 cursor-pointer transition-colors ${selectedCategoryId === cat.id ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'}`}
+                      onClick={() => setSelectedCategoryId(cat.id)}>
+                      <p className="text-sm font-medium text-gray-800">{cat.name}</p>
+                      <p className="text-xs text-gray-400 font-mono mt-0.5">{cat.id}</p>
+                      {cat.attributesSchema && selectedCategoryId === cat.id && (
+                        <pre className="mt-2 whitespace-pre-wrap break-all text-[11px] text-amber-700 bg-amber-50 rounded p-2">{cat.attributesSchema}</pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {flowMessage && <p className="text-xs text-blue-600 bg-blue-50 rounded px-3 py-2">{flowMessage}</p>}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-between items-center">
+              <button onClick={() => { void handleLoadDiscovery(); }} disabled={loadingDiscovery}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 bg-gray-50 hover:bg-gray-100 disabled:opacity-50">
+                {loadingDiscovery ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Tải lại
+              </button>
+              <button onClick={() => setShowModalCategories(false)} className="px-4 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal 2: ListAssets ── */}
+      {showModalAssets && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowModalAssets(false); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h2 className="text-sm font-bold text-gray-900">Tài sản khách hàng</h2>
+              <button onClick={() => setShowModalAssets(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {loadingAssets ? (
+                <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Đang tải...</p>
+              ) : assets.length === 0 ? (
+                <p className="text-sm text-gray-400">Không có tài sản nào. Thử tải lại.</p>
+              ) : (
+                <div className="space-y-2">
+                  {assets.map((asset) => (
+                    <div key={asset.id} className={`rounded-lg border p-3 cursor-pointer transition-colors ${selectedAssetId === asset.id ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:bg-gray-50'}`}
+                      onClick={() => setSelectedAssetId(asset.id)}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-gray-800">{asset.name || asset.model || 'Tài sản không tên'}</p>
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${asset.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{asset.status || 'UNKNOWN'}</span>
+                      </div>
+                      {asset.serialNumber && <p className="text-xs text-gray-400 mt-0.5">S/N: {asset.serialNumber}</p>}
+                      {asset.model && <p className="text-xs text-gray-400">Model: {asset.model}</p>}
+                      <p className="text-xs text-gray-300 font-mono mt-1">{asset.id}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {flowMessage && <p className="text-xs text-blue-600 bg-blue-50 rounded px-3 py-2">{flowMessage}</p>}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-between items-center">
+              <button onClick={() => { void handleListAssets(); }} disabled={loadingAssets}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 bg-gray-50 hover:bg-gray-100 disabled:opacity-50">
+                {loadingAssets ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Tải lại
+              </button>
+              <button onClick={() => setShowModalAssets(false)} className="px-4 py-1.5 text-xs font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700">Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal 3: PreviewSLA ── */}
+      {showModalSla && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowModalSla(false); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h2 className="text-sm font-bold text-gray-900">Preview SLA</h2>
+              <button onClick={() => setShowModalSla(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              {loadingSlaPreview ? (
+                <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Đang tính SLA...</p>
+              ) : slaPreview ? (
+                <div className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 space-y-2 text-sm text-indigo-800">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><p className="text-xs text-gray-500">Applied Source</p><p className="font-semibold">{slaPreview.appliedSource}</p></div>
+                    <div><p className="text-xs text-gray-500">Business Hours</p><p className="font-semibold">{slaPreview.businessHours}</p></div>
+                    <div><p className="text-xs text-gray-500">Response Time</p><p className="font-semibold">{slaPreview.targetResponseMinutes} phút</p></div>
+                    <div><p className="text-xs text-gray-500">Resolution Time</p><p className="font-semibold">{slaPreview.targetResolutionMinutes} phút</p></div>
+                    <div className="col-span-2"><p className="text-xs text-gray-500">Breach Risk</p>
+                      <p className={`font-semibold ${slaPreview.breachRisk === 'high' ? 'text-red-600' : slaPreview.breachRisk === 'medium' ? 'text-amber-600' : 'text-green-600'}`}>{slaPreview.breachRisk}</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">Chưa có dữ liệu SLA.</p>
+              )}
+              {flowMessage && <p className="mt-3 text-xs text-blue-600 bg-blue-50 rounded px-3 py-2">{flowMessage}</p>}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-between items-center">
+              <button onClick={() => { void handlePreviewSla(); }} disabled={loadingSlaPreview}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 bg-gray-50 hover:bg-gray-100 disabled:opacity-50">
+                {loadingSlaPreview ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Tải lại
+              </button>
+              <button onClick={() => setShowModalSla(false)} className="px-4 py-1.5 text-xs font-medium rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal 4: PreviewPricingRules ── */}
+      {showModalPricing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowModalPricing(false); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h2 className="text-sm font-bold text-gray-900">Preview Pricing Rules</h2>
+              <button onClick={() => setShowModalPricing(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              {loadingPricingPreview ? (
+                <p className="text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Đang tính pricing...</p>
+              ) : pricingPreview ? (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div><p className="text-xs text-gray-500">Base Amount</p><p className="font-semibold text-amber-800">{pricingPreview.baseAmount.toLocaleString()} ₫</p></div>
+                      <div><p className="text-xs text-gray-500">Total K</p><p className="font-semibold text-amber-800">×{pricingPreview.totalMultiplier.toFixed(2)}</p></div>
+                      <div><p className="text-xs text-gray-500">Estimated</p><p className="font-bold text-amber-900">{pricingPreview.estimatedAmount.toLocaleString()} ₫</p></div>
+                    </div>
+                  </div>
+                  {pricingPreview.breakdown.length > 0 && (
+                    <div className="rounded-lg border border-gray-200 bg-white p-4">
+                      <p className="text-xs font-semibold text-gray-600 mb-2">Breakdown</p>
+                      <div className="space-y-1.5">
+                        {pricingPreview.breakdown.map((rule) => (
+                          <div key={rule.code} className="flex items-center justify-between text-xs">
+                            <span className="text-gray-700">{rule.label}</span>
+                            <span className="font-medium text-amber-700">×{rule.k.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">Chưa có dữ liệu pricing.</p>
+              )}
+              {flowMessage && <p className="mt-3 text-xs text-blue-600 bg-blue-50 rounded px-3 py-2">{flowMessage}</p>}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-between items-center">
+              <button onClick={() => { void handlePreviewPricingRules(); }} disabled={loadingPricingPreview}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 bg-gray-50 hover:bg-gray-100 disabled:opacity-50">
+                {loadingPricingPreview ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Tải lại
+              </button>
+              <button onClick={() => setShowModalPricing(false)} className="px-4 py-1.5 text-xs font-medium rounded-md bg-amber-600 text-white hover:bg-amber-700">Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal 5: Chuyển AGREED (confirmation) ── */}
+      {showModalAgreed && selectedTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowModalAgreed(false); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h2 className="text-sm font-bold text-gray-900">Xác nhận chuyển AGREED</h2>
+              <button onClick={() => setShowModalAgreed(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-gray-700">Bạn có chắc muốn chuyển ticket <span className="font-semibold text-blue-700">#{selectedTicket.id.slice(0, 8)}</span> sang trạng thái <span className="font-semibold text-blue-700">AGREED</span>?</p>
+              <p className="text-xs text-gray-500">Hành động này sẽ cập nhật trạng thái ticket và thông báo cho các bên liên quan.</p>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={() => setShowModalAgreed(false)} className="px-4 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Hủy</button>
+              <button onClick={() => { void handleStatusChange(selectedTicket.id, 'AGREED'); setShowModalAgreed(false); }}
+                className="px-4 py-1.5 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700">
+                Xác nhận chuyển AGREED
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal 6: UC-3 Quoting & Margin ── */}
+      {showModalUc3 && selectedTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowModalUc3(false); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-2">
+                <Calculator className="w-4 h-4 text-violet-600" />
+                <h2 className="text-sm font-bold text-gray-900">UC-3: Báo giá &amp; Kiểm soát Margin</h2>
+              </div>
+              <button onClick={() => setShowModalUc3(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* Quotation Form */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Tổng báo giá (VNĐ)</label>
+                  <input type="text" value={quotationTotalAmount} onChange={(e) => setQuotationTotalAmount(e.target.value)}
+                    placeholder="1000000" className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Thuế (VNĐ)</label>
+                  <input type="text" value={quotationTaxAmount} onChange={(e) => setQuotationTaxAmount(e.target.value)}
+                    placeholder="0" className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                </div>
+                <div className="md:col-span-2">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-medium text-gray-600">Hạng mục báo giá</label>
+                    <span className="text-xs text-gray-400">{quotationItemRows.length} dòng</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {['Linh kiện', 'Công thợ', 'Phụ tùng', 'Dịch vụ', 'Vận chuyển', 'Khác'].map(label => (
+                      <button key={label} type="button"
+                        onClick={() => setQuotationItemRows(prev => [...prev, { description: label, quantity: '1', unit_price: '' }])}
+                        className="px-2 py-0.5 text-xs rounded-full border border-violet-200 text-violet-700 bg-white hover:bg-violet-100 transition-colors">
+                        + {label}
+                      </button>
+                    ))}
+                    <button type="button" onClick={() => setQuotationItemRows(prev => [...prev, { description: '', quantity: '1', unit_price: '' }])}
+                      className="px-2 py-0.5 text-xs rounded-full border border-dashed border-gray-300 text-gray-400 bg-white hover:bg-gray-50 transition-colors">
+                      + Dòng trống
+                    </button>
+                  </div>
+                  {quotationItemRows.length === 0 ? (
+                    <p className="text-xs text-gray-400 italic py-1">Bấm nhãn bên trên để thêm hạng mục...</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="grid gap-x-1.5 text-xs text-gray-400 font-medium px-0.5" style={{ gridTemplateColumns: '1fr 52px 90px 72px 18px' }}>
+                        <span>Mô tả</span><span className="text-center">SL</span><span>Đơn giá (₫)</span><span className="text-right">Thành tiền</span><span></span>
+                      </div>
+                      {quotationItemRows.map((row, idx) => {
+                        const total = Math.round(parseFloat(row.quantity || '0') * parseFloat(row.unit_price || '0'));
+                        return (
+                          <div key={idx} className="grid gap-x-1.5 items-center" style={{ gridTemplateColumns: '1fr 52px 90px 72px 18px' }}>
+                            <input type="text" value={row.description}
+                              onChange={(e) => setQuotationItemRows(prev => prev.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
+                              placeholder="Mô tả hạng mục" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400" />
+                            <input type="number" value={row.quantity} min="1"
+                              onChange={(e) => {
+                                const newRows = quotationItemRows.map((r, i) => i === idx ? { ...r, quantity: e.target.value } : r);
+                                setQuotationItemRows(newRows);
+                                setQuotationTotalAmount(String(newRows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
+                              }}
+                              className="border border-gray-200 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400 text-center" />
+                            <input type="text" value={row.unit_price}
+                              onChange={(e) => {
+                                const newRows = quotationItemRows.map((r, i) => i === idx ? { ...r, unit_price: e.target.value } : r);
+                                setQuotationItemRows(newRows);
+                                setQuotationTotalAmount(String(newRows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
+                              }}
+                              placeholder="500000" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400" />
+                            <span className="text-xs text-gray-600 font-medium text-right truncate">{total > 0 ? total.toLocaleString('vi-VN') : '—'}</span>
+                            <button type="button"
+                              onClick={() => {
+                                const newRows = quotationItemRows.filter((_, i) => i !== idx);
+                                setQuotationItemRows(newRows);
+                                if (newRows.length > 0) setQuotationTotalAmount(String(newRows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
+                              }}
+                              className="text-red-400 hover:text-red-600 text-xs leading-none flex items-center justify-center">✕</button>
+                          </div>
+                        );
+                      })}
+                      <div className="grid gap-x-1.5 border-t border-gray-200 pt-1.5" style={{ gridTemplateColumns: '1fr 52px 90px 72px 18px' }}>
+                        <span className="text-xs font-semibold text-gray-600 col-span-3 text-right">Tổng cộng:</span>
+                        <span className="text-xs font-bold text-violet-800 text-right">
+                          {quotationItemRows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0).toLocaleString('vi-VN')} ₫
+                        </span>
+                        <span></span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Ghi chú</label>
+                  <input type="text" value={quotationNote} onChange={(e) => setQuotationNote(e.target.value)}
+                    placeholder="Ghi chú cho báo giá..." className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => void handleSubmitQuotation()} disabled={loadingSubmitQuotation || !quotationTotalAmount}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-violet-300 text-violet-800 bg-violet-100 hover:bg-violet-200 disabled:opacity-50">
+                  {loadingSubmitQuotation ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />} SubmitQuotation
+                </button>
+                <button onClick={() => void handleCalculateMargin()} disabled={loadingMargin || !quotationTotalAmount}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-300 text-emerald-800 bg-emerald-100 hover:bg-emerald-200 disabled:opacity-50">
+                  {loadingMargin ? <Loader2 className="w-3 h-3 animate-spin" /> : <Calculator className="w-3 h-3" />} CalculateMargin
+                </button>
+                <button onClick={() => void handleSendQuotationToClient()} disabled={loadingSendToClient || !quotationId}
+                  title={!quotationId ? 'Cần tạo báo giá trước' : undefined}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-blue-300 text-blue-800 bg-blue-100 hover:bg-blue-200 disabled:opacity-50">
+                  {loadingSendToClient ? <Loader2 className="w-3 h-3 animate-spin" /> : <SendHorizontal className="w-3 h-3" />} SendQuotationToClient
+                </button>
+              </div>
+
+              {/* Margin Result */}
+              {marginResult && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-xs font-semibold text-emerald-800 mb-2">Margin Result</p>
+                  <div className="grid grid-cols-3 gap-3 text-xs text-emerald-700">
+                    <div><p className="text-gray-500">Gross Margin</p>
+                      <p className={`text-2xl font-bold ${parseFloat(marginResult.grossMarginPercent) < 15 ? 'text-red-600' : 'text-emerald-700'}`}>{marginResult.grossMarginPercent}%</p>
+                    </div>
+                    <div><p className="text-gray-500">Net Profit</p><p className="font-semibold text-sm">{Number(marginResult.netProfit).toLocaleString()} ₫</p></div>
+                    <div><p className="text-gray-500">Total Cost</p><p className="font-semibold text-sm">{Number(marginResult.totalCost).toLocaleString()} ₫</p></div>
+                  </div>
+                  {parseFloat(marginResult.grossMarginPercent) < 15 && (
+                    <div className="mt-2 flex items-center gap-1 text-xs text-red-600"><AlertTriangle className="w-3 h-3" /> Margin dưới ngưỡng (15%). Cần xin duyệt nội bộ.</div>
+                  )}
+                </div>
+              )}
+
+              {/* Internal Review */}
+              {quotationId && (
+                <div className="rounded-lg border border-violet-200 bg-violet-50/30 p-3 space-y-2">
+                  <p className="text-xs font-semibold text-violet-800">Quotation ID: <span className="font-mono text-violet-600">{quotationId}</span></p>
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-1">Ghi chú xin duyệt</label>
+                      <input type="text" value={reviewNote} onChange={(e) => setReviewNote(e.target.value)}
+                        placeholder="Margin thấp do khách VIP..." className="w-full border border-gray-200 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                    </div>
+                    <button onClick={() => void handleRequestInternalReview()} disabled={loadingRequestReview}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md border border-amber-300 text-amber-800 bg-amber-100 hover:bg-amber-200 disabled:opacity-50 whitespace-nowrap">
+                      {loadingRequestReview ? <Loader2 className="w-3 h-3 animate-spin" /> : <AlertTriangle className="w-3 h-3" />} RequestInternalReview
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Workflow & Activities */}
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => void handleGetApprovalWorkflow()} disabled={loadingApproval}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-indigo-300 text-indigo-800 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-50">
+                  {loadingApproval ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />} GetApprovalWorkflow
+                </button>
+                <button onClick={() => void handleListActivities()} disabled={loadingActivities}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50">
+                  {loadingActivities ? <Loader2 className="w-3 h-3 animate-spin" /> : <Activity className="w-3 h-3" />} ListActivities
+                </button>
+              </div>
+
+              {approvalSteps.length > 0 && (
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+                  <p className="text-xs font-semibold text-indigo-800 mb-2">Approval Workflow</p>
+                  <div className="space-y-1.5">
+                    {approvalSteps.map((step, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-xs">
+                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${step.status === 'APPROVED' ? 'bg-green-200 text-green-800' : step.status === 'REJECTED' ? 'bg-red-200 text-red-800' : 'bg-gray-200 text-gray-600'}`}>{idx + 1}</span>
+                        <span className="font-medium text-gray-800">{step.stepName || `Step ${idx + 1}`}</span>
+                        <span className="text-gray-400">—</span>
+                        <span className="text-gray-600">{step.approver || '?'}</span>
+                        <span className={`ml-auto px-1.5 py-0.5 rounded text-[10px] font-semibold ${step.status === 'APPROVED' ? 'bg-green-100 text-green-700' : step.status === 'REJECTED' ? 'bg-red-100 text-red-700' : step.status === 'PENDING' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>{step.status || 'UNKNOWN'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {ticketActivities.length > 0 && (
+                <div className="rounded-lg border border-gray-200 bg-white p-3">
+                  <p className="text-xs font-semibold text-gray-800 mb-2">Ticket Activities</p>
+                  <div className="space-y-1.5">
+                    {ticketActivities.map((act, idx) => (
+                      <div key={act.id || idx} className="flex items-start gap-2 text-xs">
+                        <Activity className="w-3 h-3 text-gray-400 mt-0.5 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <span className="font-medium text-gray-800">{act.actorName || act.actorId || 'System'}</span>{' '}
+                          <span className="text-gray-600">{act.action || act.detail || 'activity'}</span>
+                          {act.createdAt && <span className="text-gray-400 ml-1">{new Date(act.createdAt).toLocaleString('vi-VN')}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {flowMessage && <p className="text-xs text-blue-600 bg-blue-50 rounded px-3 py-2">{flowMessage}</p>}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowModalUc3(false)} className="px-4 py-1.5 text-xs font-medium rounded-md bg-violet-600 text-white hover:bg-violet-700">Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
