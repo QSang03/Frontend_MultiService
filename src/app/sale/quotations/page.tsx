@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FileText, Plus, Send, Clock, AlertCircle, X, Calculator, Loader2, SendHorizontal, Eye, Activity, AlertTriangle } from 'lucide-react';
+import { FileText, Plus, Send, Clock, AlertCircle, X, Calculator, Loader2, SendHorizontal, Eye, Activity, AlertTriangle, CheckCircle2, TrendingUp, Search, Users, Tag } from 'lucide-react';
+import { useToast } from '@/components/ui';
 
 interface Quote {
   id: string;
@@ -132,7 +133,9 @@ export default function SaleQuotationsPage() {
   const [approvalSteps, setApprovalSteps] = useState<ApprovalStep[]>([]);
   const [ticketActivities, setTicketActivities] = useState<TicketActivityItem[]>([]);
   const [reviewNote, setReviewNote] = useState('');
-  const [flowMessage, setFlowMessage] = useState('');
+  const [statusFilter, setStatusFilter] = useState<Quote['status'] | 'all'>('all');
+  const { addToast } = useToast();
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Customer selector
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
@@ -187,6 +190,12 @@ export default function SaleQuotationsPage() {
     }
   }, [showCreateModal]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowCreateModal(false); };
+    if (showCreateModal) document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showCreateModal]);
+
   const handleTemplateSelect = (template: Template) => {
     setQuotationItemRows(template.defaultItems.map(item => ({
       description: item.name,
@@ -201,7 +210,7 @@ export default function SaleQuotationsPage() {
 
   const handleSubmitQuotation = async () => {
     if (!selectedClient || !ticketId) {
-      setFlowMessage('Vui lòng chọn Client và nhập Ticket ID trước khi tạo báo giá.');
+      addToast('Vui lòng chọn Client và chọn Ticket trước khi tạo báo giá.', { type: 'error' });
       return;
     }
     setLoadingSubmitQuotation(true);
@@ -226,7 +235,7 @@ export default function SaleQuotationsPage() {
       });
       const json = await response.json();
       if (!response.ok) {
-        setFlowMessage(json?.error || 'SubmitQuotation thất bại.');
+        addToast(json?.error || 'SubmitQuotation thất bại.', { type: 'error' });
         return;
       }
       const q = json.quotation as Record<string, unknown>;
@@ -246,9 +255,9 @@ export default function SaleQuotationsPage() {
         ticketId,
       };
       setQuotes(prev => [newQuote, ...prev]);
-      setFlowMessage(`Đã tạo báo giá: ${newQid}`);
+      addToast(`Đã tạo báo giá: ${newQid}`, { type: 'success' });
     } catch {
-      setFlowMessage('Lỗi kết nối khi tạo báo giá.');
+      addToast('Lỗi kết nối khi tạo báo giá.', { type: 'error' });
     } finally {
       setLoadingSubmitQuotation(false);
     }
@@ -256,7 +265,7 @@ export default function SaleQuotationsPage() {
 
   const handleCalculateMargin = async () => {
     if (!ticketId) {
-      setFlowMessage('Vui lòng nhập Ticket ID trước.');
+      addToast('Vui lòng chọn Ticket trước.', { type: 'error' });
       return;
     }
     setLoadingMargin(true);
@@ -279,7 +288,7 @@ export default function SaleQuotationsPage() {
       });
       const json = await response.json();
       if (!response.ok) {
-        setFlowMessage(json?.error || 'CalculateMargin thất bại.');
+        addToast(json?.error || 'CalculateMargin thất bại.', { type: 'error' });
         return;
       }
       setMarginResult({
@@ -287,9 +296,9 @@ export default function SaleQuotationsPage() {
         netProfit: String(json.net_profit ?? '0'),
         totalCost: String(json.total_cost ?? '0'),
       });
-      setFlowMessage('CalculateMargin thành công.');
+      addToast('CalculateMargin thành công.', { type: 'success' });
     } catch {
-      setFlowMessage('Lỗi kết nối khi tính margin.');
+      addToast('Lỗi kết nối khi tính margin.', { type: 'error' });
     } finally {
       setLoadingMargin(false);
     }
@@ -297,7 +306,7 @@ export default function SaleQuotationsPage() {
 
   const handleRequestInternalReview = async () => {
     if (!ticketId || !quotationId) {
-      setFlowMessage('Cần tạo báo giá trước khi xin duyệt.');
+      addToast('Cần tạo báo giá trước khi xin duyệt.', { type: 'error' });
       return;
     }
     setLoadingRequestReview(true);
@@ -309,13 +318,13 @@ export default function SaleQuotationsPage() {
       });
       const json = await response.json();
       if (!response.ok) {
-        setFlowMessage(json?.error || 'RequestInternalReview thất bại.');
+        addToast(json?.error || 'RequestInternalReview thất bại.', { type: 'error' });
         return;
       }
-      setFlowMessage('Đã gửi yêu cầu duyệt nội bộ thành công.');
+      addToast('Đã gửi yêu cầu duyệt nội bộ thành công.', { type: 'success' });
       setReviewNote('');
     } catch {
-      setFlowMessage('Lỗi kết nối khi xin duyệt.');
+      addToast('Lỗi kết nối khi xin duyệt.', { type: 'error' });
     } finally {
       setLoadingRequestReview(false);
     }
@@ -323,7 +332,7 @@ export default function SaleQuotationsPage() {
 
   const handleSendQuotationToClient = async () => {
     if (!quotationId) {
-      setFlowMessage('Cần tạo báo giá trước khi gửi cho khách.');
+      addToast('Cần tạo báo giá trước khi gửi cho khách.', { type: 'error' });
       return;
     }
     setLoadingSendToClient(true);
@@ -335,13 +344,13 @@ export default function SaleQuotationsPage() {
       });
       const json = await response.json();
       if (!response.ok) {
-        setFlowMessage(json?.error || 'SendQuotationToClient thất bại.');
+        addToast(json?.error || 'SendQuotationToClient thất bại.', { type: 'error' });
         return;
       }
       setQuotes(prev => prev.map(q => q.quotationId === quotationId ? { ...q, status: 'sent' } : q));
-      setFlowMessage('Đã gửi báo giá cho khách hàng thành công.');
+      addToast('Đã gửi báo giá cho khách hàng thành công.', { type: 'success' });
     } catch {
-      setFlowMessage('Lỗi kết nối khi gửi báo giá.');
+      addToast('Lỗi kết nối khi gửi báo giá.', { type: 'error' });
     } finally {
       setLoadingSendToClient(false);
     }
@@ -349,7 +358,7 @@ export default function SaleQuotationsPage() {
 
   const handleGetApprovalWorkflow = async () => {
     if (!ticketId) {
-      setFlowMessage('Vui lòng nhập Ticket ID.');
+      addToast('Vui lòng chọn Ticket trước.', { type: 'error' });
       return;
     }
     setLoadingApproval(true);
@@ -357,14 +366,14 @@ export default function SaleQuotationsPage() {
       const response = await fetch(`/api/sale/quotations/approval-workflow?ticket_id=${encodeURIComponent(ticketId)}`);
       const json = await response.json();
       if (!response.ok) {
-        setFlowMessage(json?.error || 'GetTicketApprovalWorkflow thất bại.');
+        addToast(json?.error || 'GetTicketApprovalWorkflow thất bại.', { type: 'error' });
         return;
       }
       const steps = Array.isArray(json?.steps) ? json.steps as ApprovalStep[] : [];
       setApprovalSteps(steps);
-      setFlowMessage(`ApprovalWorkflow: ${steps.length} bước.`);
+      addToast(`ApprovalWorkflow: ${steps.length} bước.`, { type: 'success' });
     } catch {
-      setFlowMessage('Lỗi kết nối khi tải approval workflow.');
+      addToast('Lỗi kết nối khi tải approval workflow.', { type: 'error' });
     } finally {
       setLoadingApproval(false);
     }
@@ -372,7 +381,7 @@ export default function SaleQuotationsPage() {
 
   const handleListActivities = async () => {
     if (!ticketId) {
-      setFlowMessage('Vui lòng nhập Ticket ID.');
+      addToast('Vui lòng chọn Ticket trước.', { type: 'error' });
       return;
     }
     setLoadingActivities(true);
@@ -380,14 +389,14 @@ export default function SaleQuotationsPage() {
       const response = await fetch(`/api/sale/quotations/activities?ticket_id=${encodeURIComponent(ticketId)}&page_size=20`);
       const json = await response.json();
       if (!response.ok) {
-        setFlowMessage(json?.error || 'ListTicketActivities thất bại.');
+        addToast(json?.error || 'ListTicketActivities thất bại.', { type: 'error' });
         return;
       }
       const activities = Array.isArray(json?.activities) ? json.activities as TicketActivityItem[] : [];
       setTicketActivities(activities);
-      setFlowMessage(`Loaded ${activities.length} activities (total: ${json.total_count ?? '?'}).`);
+      addToast(`Loaded ${activities.length} activities (total: ${json.total_count ?? '?'}).`, { type: 'success' });
     } catch {
-      setFlowMessage('Lỗi kết nối khi tải activities.');
+      addToast('Lỗi kết nối khi tải activities.', { type: 'error' });
     } finally {
       setLoadingActivities(false);
     }
@@ -395,11 +404,11 @@ export default function SaleQuotationsPage() {
 
   const handleApproveQuotation = async (quote: Quote) => {
     if (!quote.quotationId || !quote.ticketId) {
-      setFlowMessage('Quotation này chưa có ID backend để approve.');
+      addToast('Quotation này chưa có ID backend để approve.', { type: 'error' });
       return;
     }
 
-    setFlowMessage('Đang ApproveQuotation và chuyển Ticket sang OPEN...');
+    addToast('Đang ApproveQuotation và chuyển Ticket sang OPEN...', { type: 'info' });
     try {
       const approveRes = await fetch('/api/admin/tickets/quotations', {
         method: 'PUT',
@@ -409,7 +418,7 @@ export default function SaleQuotationsPage() {
 
       const approveJson = await approveRes.json();
       if (!approveRes.ok) {
-        setFlowMessage(approveJson?.error || 'ApproveQuotation thất bại.');
+        addToast(approveJson?.error || 'ApproveQuotation thất bại.', { type: 'error' });
         return;
       }
 
@@ -421,13 +430,13 @@ export default function SaleQuotationsPage() {
 
       if (!updateTicketRes.ok) {
         const updateJson = await updateTicketRes.json().catch(() => ({}));
-        setFlowMessage(updateJson?.error || 'Approved quotation nhưng không update được ticket OPEN.');
+        addToast(updateJson?.error || 'Approved nhưng không update được ticket OPEN.', { type: 'error' });
       }
 
       setQuotes((prev) => prev.map((item) => (item.id === quote.id ? { ...item, status: 'approved' } : item)));
-      setFlowMessage('Quotation đã được approve, ticket đã chuyển OPEN.');
+      addToast('Quotation đã được approve, ticket đã chuyển OPEN.', { type: 'success' });
     } catch {
-      setFlowMessage('Lỗi kết nối khi approve quotation.');
+      addToast('Lỗi kết nối khi approve quotation.', { type: 'error' });
     }
   };
 
@@ -435,37 +444,37 @@ export default function SaleQuotationsPage() {
     switch (status) {
       case 'sent':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-            <Clock className="w-3 h-3" />
-            Sent
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+            <Send className="w-3 h-3" />
+            Đã gửi
           </span>
         );
       case 'draft':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-            <Clock className="w-3 h-3" />
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+            <FileText className="w-3 h-3" />
             Draft
           </span>
         );
       case 'approval':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
             <AlertCircle className="w-3 h-3" />
-            Approval
+            Chờ duyệt
           </span>
         );
       case 'internal-review':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-            <AlertCircle className="w-3 h-3" />
-            Internal Review
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+            <Clock className="w-3 h-3" />
+            Chờ nội bộ
           </span>
         );
       case 'approved':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-            <Clock className="w-3 h-3" />
-            Approved
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+            <CheckCircle2 className="w-3 h-3" />
+            Đã duyệt
           </span>
         );
     }
@@ -473,117 +482,228 @@ export default function SaleQuotationsPage() {
 
   const getDealTypeBadge = (type: Quote['dealType']) => {
     return type === 'long-term' ? (
-      <span className="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-700">Long-term</span>
+      <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">Long-term</span>
     ) : (
-      <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700">One-deal</span>
+      <span className="text-xs px-2.5 py-0.5 rounded-full bg-teal-100 text-teal-700 font-medium">One-deal</span>
     );
   };
+
+  const filteredQuotes = quotes.filter(q => {
+    const matchStatus = statusFilter === 'all' || q.status === statusFilter;
+    const q2 = searchQuery.toLowerCase();
+    const matchSearch = !q2 || q.id.toLowerCase().includes(q2) || q.customer.toLowerCase().includes(q2) || q.services.some(s => s.toLowerCase().includes(q2));
+    return matchStatus && matchSearch;
+  });
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quotes & Contracts</h1>
-          <p className="text-gray-500 mt-1">
-            Create quotes, track e-signatures, and manage special discount approvals.
+          <h1 className="text-2xl font-bold">
+            <span className="bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">Quotes &amp; Contracts</span>
+          </h1>
+          <p className="text-gray-400 mt-1 text-sm">
+            Tạo báo giá, theo dõi ký kết &amp; quản lý duyệt chiết khấu đặc biệt.
           </p>
         </div>
         <div className="flex gap-3">
           <button
             onClick={() => setShowTemplates(true)}
-            className="flex items-center gap-2 px-4 py-2.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors text-sm text-gray-700 font-medium"
           >
             <FileText className="w-4 h-4" />
             Templates
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 transition-colors"
+            className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 text-white px-4 py-2.5 rounded-xl hover:from-violet-700 hover:to-blue-700 transition-all shadow-sm shadow-violet-200 text-sm font-medium"
           >
             <Plus className="w-4 h-4" />
-            Create Quote
+            Tạo báo giá
           </button>
         </div>
       </div>
 
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-white shadow-sm flex items-center justify-center flex-shrink-0">
+            <FileText className="w-4 h-4 text-blue-600" />
+          </div>
+          <div>
+            <p className="text-xl font-bold text-gray-900 leading-tight">{quotes.length}</p>
+            <p className="text-xs text-gray-500">Tổng báo giá</p>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-white shadow-sm flex items-center justify-center flex-shrink-0">
+            <AlertCircle className="w-4 h-4 text-amber-600" />
+          </div>
+          <div>
+            <p className="text-xl font-bold text-gray-900 leading-tight">{quotes.filter(q => q.status === 'approval' || q.status === 'internal-review').length}</p>
+            <p className="text-xs text-gray-500">Chờ duyệt</p>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-violet-100 bg-violet-50 p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-white shadow-sm flex items-center justify-center flex-shrink-0">
+            <Send className="w-4 h-4 text-violet-600" />
+          </div>
+          <div>
+            <p className="text-xl font-bold text-gray-900 leading-tight">{quotes.filter(q => q.status === 'sent').length}</p>
+            <p className="text-xs text-gray-500">Đã gửi KH</p>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-white shadow-sm flex items-center justify-center flex-shrink-0">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+          </div>
+          <div>
+            <p className="text-xl font-bold text-gray-900 leading-tight">{quotes.filter(q => q.status === 'approved').length}</p>
+            <p className="text-xs text-gray-500">Đã duyệt</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter Tabs + Search */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-0.5 p-1 bg-gray-100 rounded-xl overflow-x-auto flex-shrink-0">
+          {(['all', 'draft', 'sent', 'internal-review', 'approval', 'approved'] as const).map((key) => {
+            const labels: Record<string, string> = { all: 'Tất cả', draft: 'Draft', sent: 'Đã gửi', 'internal-review': 'Chờ nội bộ', approval: 'Chờ duyệt', approved: 'Đã duyệt' };
+            const count = key === 'all' ? quotes.length : quotes.filter(q => q.status === key).length;
+            return (
+              <button
+                key={key}
+                onClick={() => setStatusFilter(key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                  statusFilter === key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {labels[key]}
+                <span className={`tabular-nums text-[10px] px-1.5 py-0.5 rounded-full ${
+                  statusFilter === key ? 'bg-violet-100 text-violet-700 font-bold' : 'bg-gray-200 text-gray-500'
+                }`}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Tìm mã, khách hàng, dịch vụ..."
+            className="pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-xl w-60 focus:outline-none focus:ring-2 focus:ring-violet-500 bg-white"
+          />
+        </div>
+      </div>
+
       {/* Quotes List */}
-      <div className="space-y-4">
-        {quotes.map((quote) => (
-          <div
-            key={quote.id}
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 hover:border-blue-300 transition-colors"
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center shrink-0">
-                  <FileText className="w-6 h-6 text-blue-600" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <h3 className="font-semibold text-gray-900">{quote.id}</h3>
-                    {getStatusBadge(quote.status)}
-                    {getDealTypeBadge(quote.dealType)}
+      <div className="space-y-3">
+        {filteredQuotes.length === 0 ? (
+          <div className="text-center py-16 bg-white rounded-2xl border-2 border-dashed border-gray-100">
+            <FileText className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+            <p className="text-sm text-gray-500 font-medium">Không tìm thấy báo giá nào</p>
+            <p className="text-xs text-gray-400 mt-1">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm</p>
+          </div>
+        ) : (
+          filteredQuotes.map((quote) => (
+            <div
+              key={quote.id}
+              className={`bg-white rounded-2xl border border-gray-100 border-l-4 overflow-hidden hover:shadow-md transition-all duration-200 ${
+                quote.status === 'approved' ? 'border-l-emerald-500' :
+                quote.status === 'approval' || quote.status === 'internal-review' ? 'border-l-amber-400' :
+                quote.status === 'sent' ? 'border-l-blue-500' :
+                'border-l-gray-300'
+              }`}
+            >
+              <div className="p-5 flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4 min-w-0">
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                    quote.status === 'approved' ? 'bg-emerald-100' :
+                    quote.status === 'approval' || quote.status === 'internal-review' ? 'bg-amber-100' :
+                    'bg-blue-100'
+                  }`}>
+                    <FileText className={`w-5 h-5 ${
+                      quote.status === 'approved' ? 'text-emerald-600' :
+                      quote.status === 'approval' || quote.status === 'internal-review' ? 'text-amber-600' :
+                      'text-blue-600'
+                    }`} />
                   </div>
-                  <p className="text-sm font-medium text-gray-900">{quote.customer}</p>
-                  <p className="text-xs text-gray-500 mt-1">Created: {quote.createdDate}</p>
-                  <div className="flex gap-2 mt-2">
-                    {quote.services.map((service, idx) => (
-                      <span
-                        key={idx}
-                        className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-600"
-                      >
-                        {service}
-                      </span>
-                    ))}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <span className="font-bold text-gray-900">{quote.id}</span>
+                      {getStatusBadge(quote.status)}
+                      {getDealTypeBadge(quote.dealType)}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-sm text-gray-700 mb-1">
+                      <Users className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                      <span className="font-medium truncate">{quote.customer}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mb-2">Ngày tạo: {quote.createdDate}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {quote.services.map((service, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                          <Tag className="w-2.5 h-2.5" />
+                          {service}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-gray-500">Total Value</p>
-                <p className="text-2xl font-bold text-gray-900">{quote.totalValue}</p>
-                <p className="text-sm text-green-600 mt-1">Est. Net Profit: {quote.netProfit}</p>
-                {quote.status === 'approval' && (
-                  <p className="text-xs text-orange-600 mt-2">Includes 15% Discount</p>
-                )}
-                {quote.status === 'approved' && (
-                  <p className="text-xs text-green-600 mt-2">Quotation APPROVED → Ticket chuyển OPEN</p>
-                )}
-                <div className="flex gap-2 mt-4">
-                  <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                    Details
-                  </button>
-                  {quote.status === 'draft' ? (
-                    <button className="flex items-center gap-1 text-sm bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700">
-                      <Send className="w-3 h-3" />
-                      Send via E-Sign
-                    </button>
-                  ) : quote.status === 'sent' && quote.quotationId ? (
-                    <button
-                      onClick={() => handleApproveQuotation(quote)}
-                      className="text-sm bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded font-medium"
-                    >
-                      Mark Client Approved
-                    </button>
-                  ) : quote.status === 'approval' || quote.status === 'internal-review' ? (
-                    <button className="text-sm bg-orange-100 text-orange-700 px-3 py-1.5 rounded font-medium">
-                      Waiting Approval
-                    </button>
-                  ) : quote.status === 'approved' ? (
-                    <button className="text-sm bg-green-100 text-green-700 px-3 py-1.5 rounded font-medium">
-                      Ticket OPEN
-                    </button>
-                  ) : (
-                    <button className="flex items-center gap-1 text-sm bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700">
-                      <Send className="w-3 h-3" />
-                      Send via E-Sign
-                    </button>
+                <div className="text-right shrink-0 flex flex-col items-end">
+                  <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Giá trị</p>
+                  <p className="text-xl font-bold text-gray-900 mt-0.5">{quote.totalValue}</p>
+                  <p className="text-xs text-emerald-600 flex items-center gap-1 mt-0.5 justify-end">
+                    <TrendingUp className="w-3 h-3" />
+                    {quote.netProfit}
+                  </p>
+                  {quote.status === 'approval' && (
+                    <span className="mt-1.5 text-xs bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200">15% Discount</span>
                   )}
+                  {quote.status === 'approved' && (
+                    <span className="mt-1.5 text-xs bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full border border-emerald-200">✓ Approved</span>
+                  )}
+                  <div className="flex items-center gap-2 mt-3">
+                    <button className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 px-2.5 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
+                      <Eye className="w-3 h-3" />
+                      Chi tiết
+                    </button>
+                    {quote.status === 'draft' ? (
+                      <button className="inline-flex items-center gap-1.5 text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                        <Send className="w-3 h-3" />
+                        Gửi E-Sign
+                      </button>
+                    ) : quote.status === 'sent' && quote.quotationId ? (
+                      <button
+                        onClick={() => handleApproveQuotation(quote)}
+                        className="inline-flex items-center gap-1.5 text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg hover:bg-emerald-700 transition-colors font-medium"
+                      >
+                        <CheckCircle2 className="w-3 h-3" />
+                        KH Duyệt
+                      </button>
+                    ) : quote.status === 'approval' || quote.status === 'internal-review' ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-medium">
+                        <Clock className="w-3 h-3" />
+                        Chờ duyệt
+                      </span>
+                    ) : quote.status === 'approved' ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs bg-emerald-100 text-emerald-700 px-3 py-1.5 rounded-lg font-medium">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Ticket OPEN
+                      </span>
+                    ) : (
+                      <button className="inline-flex items-center gap-1.5 text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors font-medium">
+                        <Send className="w-3 h-3" />
+                        Gửi E-Sign
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Templates Modal */}
@@ -643,11 +763,16 @@ export default function SaleQuotationsPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setShowCreateModal(false); }}
         >
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-              <div className="flex items-center gap-2">
-                <Calculator className="w-4 h-4 text-violet-600" />
-                <h2 className="text-sm font-bold text-gray-900">UC-3: Tạo Báo Giá &amp; Kiểm soát Margin</h2>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center">
+                  <Calculator className="w-4 h-4 text-violet-600" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-gray-900">Tạo Báo Giá Mới</h2>
+                  <p className="text-xs text-gray-400">Điền thông tin, xây dựng hạng mục &amp; kiểm tra margin</p>
+                </div>
               </div>
               <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
             </div>
@@ -984,20 +1109,25 @@ export default function SaleQuotationsPage() {
                 </div>
               )}
 
-              {flowMessage && <p className="text-xs text-blue-600 bg-blue-50 rounded px-3 py-2">{flowMessage}</p>}
+
             </div>
-            <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setShowCreateModal(false)} className="px-4 py-1.5 text-xs font-medium rounded-md bg-violet-600 text-white hover:bg-violet-700">Đóng</button>
+            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between bg-gray-50/60">
+              <p className="text-xs text-gray-400">
+                {quotationId
+                  ? <span className="inline-flex items-center gap-1 text-violet-600 font-medium"><CheckCircle2 className="w-3.5 h-3.5" /> Quotation đã tạo</span>
+                  : 'Chưa có quotation nào được tạo'}
+              </p>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="px-5 py-2 text-sm font-medium rounded-xl bg-violet-600 text-white hover:bg-violet-700 transition-colors"
+              >
+                Đóng
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {flowMessage && (
-        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
-          {flowMessage}
-        </div>
-      )}
     </div>
   );
 }

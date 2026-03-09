@@ -1,41 +1,49 @@
 'use client';
 
 import { useState } from 'react';
-import { DollarSign, Users, AlertTriangle, FileText, Zap } from 'lucide-react';
+import { DollarSign, Users, AlertTriangle, FileText, Zap, TrendingUp, TrendingDown, ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
 import QuickQuoteModal from '@/components/QuickQuoteModal';
 
 const stats = [
   { 
-    label: 'Pending Commission', 
+    label: 'Hoa hồng chờ', 
     value: '$1,250', 
     icon: DollarSign, 
-    color: 'bg-blue-500',
-    change: '+12% vs last month',
+    gradient: 'from-blue-500 to-indigo-600',
+    bg: 'bg-blue-50',
+    change: '+12%',
+    sub: 'so tháng trước',
     positive: true
   },
   { 
-    label: 'Active Leads', 
+    label: 'Lead đang theo dõi', 
     value: '45', 
     icon: Users, 
-    color: 'bg-blue-500',
-    change: '+5% New this week',
+    gradient: 'from-violet-500 to-purple-600',
+    bg: 'bg-violet-50',
+    change: '+5%',
+    sub: 'mới tuần này',
     positive: true
   },
   { 
-    label: 'SLA Breaches', 
+    label: 'Vi phạm SLA', 
     value: '2', 
     icon: AlertTriangle, 
-    color: 'bg-red-500',
-    change: '-10% Needs attention',
+    gradient: 'from-rose-500 to-red-600',
+    bg: 'bg-rose-50',
+    change: '-10%',
+    sub: 'cần xử lý ngay',
     positive: false
   },
   { 
-    label: 'Active Contracts', 
+    label: 'Hợp đồng hiệu lực', 
     value: '18', 
     icon: FileText, 
-    color: 'bg-green-500',
-    change: '+2% Long-term deals',
+    gradient: 'from-emerald-500 to-teal-600',
+    bg: 'bg-emerald-50',
+    change: '+2%',
+    sub: 'gói dài hạn',
     positive: true
   },
 ];
@@ -48,7 +56,11 @@ const urgentTasks = [
     description: 'Server maintenance ticket pending for 3.5h. 4h limit.',
     link: '#',
     icon: AlertTriangle,
-    color: 'border-red-200 bg-red-50'
+    accent: 'border-l-rose-500',
+    bg: 'bg-rose-50/60',
+    iconColor: 'text-rose-500',
+    linkColor: 'text-rose-600 hover:text-rose-700',
+    action: 'Xem Ticket',
   },
   {
     id: '2',
@@ -57,7 +69,11 @@ const urgentTasks = [
     description: 'TechSoft Inc. expires in 7 days.',
     link: '#',
     icon: FileText,
-    color: 'border-blue-200 bg-blue-50'
+    accent: 'border-l-blue-500',
+    bg: 'bg-blue-50/60',
+    iconColor: 'text-blue-500',
+    linkColor: 'text-blue-600 hover:text-blue-700',
+    action: 'Tạo báo giá',
   },
   {
     id: '3',
@@ -66,7 +82,11 @@ const urgentTasks = [
     description: 'Phone +84 987... matches existing user.',
     link: '#',
     icon: Users,
-    color: 'border-gray-200 bg-gray-50'
+    accent: 'border-l-violet-500',
+    bg: 'bg-violet-50/60',
+    iconColor: 'text-violet-500',
+    linkColor: 'text-violet-600 hover:text-violet-700',
+    action: 'Xử lý',
   },
 ];
 
@@ -106,36 +126,41 @@ export default function SaleDashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-500 mt-1">Overview of your sales performance and SLAs.</p>
+          <h1 className="text-2xl font-extrabold">
+            <span className="bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">Dashboard</span>
+          </h1>
+          <p className="text-gray-400 mt-1 text-sm">Tổng quan hiệu suất bán hàng &amp; SLA.</p>
         </div>
         <button 
           onClick={() => setShowQuickQuote(true)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+          className="flex items-center gap-2 bg-gradient-to-r from-violet-600 to-blue-600 text-white px-4 py-2.5 rounded-xl hover:from-violet-700 hover:to-blue-700 transition-all shadow-md shadow-violet-200 font-medium text-sm"
         >
           <Zap className="w-4 h-4" />
-          New Quick Quote
+          Quick Quote
         </button>
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat) => {
           const Icon = stat.icon;
+          const TrendIcon = stat.positive ? TrendingUp : TrendingDown;
           return (
-            <div key={stat.label} className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm text-gray-600 font-medium">{stat.label}</p>
-                  <p className="text-3xl font-bold text-gray-900 mt-2">{stat.value}</p>
-                  <p className={`text-xs mt-2 ${stat.positive ? 'text-green-600' : 'text-red-600'}`}>
-                    {stat.change}
-                  </p>
+            <div key={stat.label} className={`${stat.bg} rounded-2xl p-5 border border-white/60 shadow-sm hover:shadow-md transition-shadow`}>
+              <div className="flex items-start justify-between mb-3">
+                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${stat.gradient} flex items-center justify-center shadow-sm`}>
+                  <Icon className="w-5 h-5 text-white" />
                 </div>
-                <div className={`${stat.color} w-12 h-12 rounded-lg flex items-center justify-center shrink-0`}>
-                  <Icon className="w-6 h-6 text-white" />
-                </div>
+                <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${
+                  stat.positive ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                }`}>
+                  <TrendIcon className="w-3 h-3" />
+                  {stat.change}
+                </span>
               </div>
+              <p className="text-3xl font-black text-gray-900 leading-tight">{stat.value}</p>
+              <p className="text-sm font-semibold text-gray-700 mt-0.5">{stat.label}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{stat.sub}</p>
             </div>
           );
         })}
@@ -144,17 +169,20 @@ export default function SaleDashboardPage() {
       {/* Chart and Urgent Tasks */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Revenue Chart */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-semibold text-gray-900">Profit vs Revenue Trend</h2>
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Doanh thu &amp; Lợi nhuần</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Biếu đồ xu hướng theo thời gian</p>
+            </div>
             <select 
               value={timeRange}
               onChange={(e) => setTimeRange(e.target.value as '7days' | '30days' | '90days')}
-              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="text-xs border border-gray-200 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-violet-400 bg-gray-50 font-medium"
             >
-              <option value="7days">Last 7 Days</option>
-              <option value="30days">Last 30 Days</option>
-              <option value="90days">Last 90 Days</option>
+              <option value="7days">7 ngày qua</option>
+              <option value="30days">30 ngày qua</option>
+              <option value="90days">90 ngày qua</option>
             </select>
           </div>
           
@@ -240,52 +268,42 @@ export default function SaleDashboardPage() {
           </div>
 
           {/* Legend */}
-          <div className="flex items-center justify-center gap-6 mt-4 pt-4 border-t">
+          <div className="flex items-center justify-center gap-6 mt-4 pt-4 border-t border-gray-50">
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-blue-400"></div>
-              <span className="text-sm text-gray-600">Revenue</span>
+              <div className="w-3 h-3 rounded-full bg-gradient-to-r from-blue-400 to-indigo-500"></div>
+              <span className="text-xs text-gray-500 font-medium">Doanh thu</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-green-400"></div>
-              <span className="text-sm text-gray-600">Profit</span>
+              <div className="w-3 h-3 rounded-full bg-gradient-to-r from-emerald-400 to-teal-500"></div>
+              <span className="text-xs text-gray-500 font-medium">Lợi nhuần</span>
             </div>
           </div>
         </div>
 
         {/* Urgent Tasks */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Urgent Tasks</h2>
-          <div className="space-y-3">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-bold text-gray-900">Việc cần xử lý</h2>
+            <span className="text-xs font-bold bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full">{urgentTasks.length}</span>
+          </div>
+          <div className="space-y-2.5">
             {urgentTasks.map((task) => {
               const Icon = task.icon;
               return (
-                <div key={task.id} className={`border rounded-lg p-4 ${task.color}`}>
+                <div key={task.id} className={`${task.bg} border-l-4 ${task.accent} rounded-r-xl p-3.5`}>
                   <div className="flex items-start gap-3">
-                    <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${
-                      task.type === 'sla' ? 'text-red-600' : 
-                      task.type === 'contract' ? 'text-blue-600' : 
-                      'text-gray-600'
-                    }`} />
+                    <div className={`w-7 h-7 rounded-lg bg-white flex items-center justify-center shrink-0 shadow-sm`}>
+                      <Icon className={`w-3.5 h-3.5 ${task.iconColor}`} />
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className={`text-sm font-semibold ${
-                        task.type === 'sla' ? 'text-red-900' : 
-                        task.type === 'contract' ? 'text-blue-900' : 
-                        'text-gray-900'
-                      }`}>
-                        {task.title}
-                      </h3>
-                      <p className="text-xs text-gray-600 mt-1">{task.description}</p>
+                      <h3 className="text-sm font-semibold text-gray-900">{task.title}</h3>
+                      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{task.description}</p>
                       <Link 
                         href={task.link} 
-                        className={`inline-flex items-center text-xs font-medium mt-2 ${
-                          task.type === 'sla' ? 'text-red-700 hover:text-red-800' : 
-                          task.type === 'contract' ? 'text-blue-700 hover:text-blue-800' : 
-                          'text-gray-700 hover:text-gray-800'
-                        }`}
+                        className={`inline-flex items-center gap-1 text-xs font-semibold mt-2 ${task.linkColor}`}
                       >
-                        {task.type === 'sla' ? 'View Ticket' : 
-                         task.type === 'contract' ? 'Prepare Quote' : 
-                         'Resolve'} →
+                        {task.action}
+                        <ArrowUpRight className="w-3 h-3" />
                       </Link>
                     </div>
                   </div>

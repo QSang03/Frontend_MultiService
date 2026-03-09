@@ -1,15 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  AlertCircle, 
-  CheckCircle2, 
-  Clock,
-} from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Plus, Search, AlertCircle, CheckCircle2, Clock, DollarSign, TrendingUp, FileText } from 'lucide-react';
 import CreateInvoiceModal from './CreateInvoiceModal';
 
 interface Invoice {
@@ -20,172 +12,176 @@ interface Invoice {
   status: string;
 }
 
-// Dummy data
 const INITIAL_INVOICES: Invoice[] = [
   { id: 'INV-2024-001', client: 'TechSolutions Ltd', amount: 50000000, dueDate: '2024-02-15', status: 'pending_verification' },
-  { id: 'INV-2024-002', client: 'Nguyen Van A', amount: 1500000, dueDate: '2024-01-25', status: 'paid' },
-  { id: 'INV-2024-003', client: 'StartUp Alpha', amount: 12000000, dueDate: '2024-02-01', status: 'overdue' },
+  { id: 'INV-2024-002', client: 'Nguyen Van A',      amount: 1500000,  dueDate: '2024-01-25', status: 'paid' },
+  { id: 'INV-2024-003', client: 'StartUp Alpha',     amount: 12000000, dueDate: '2024-02-01', status: 'overdue' },
+];
+
+const statusConfig: Record<string, { label: string; color: string; dot: string; icon: React.ReactNode }> = {
+  paid:                 { label: 'Đã thanh toán',    color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-400', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  pending_verification: { label: 'Chờ xác nhận',     color: 'bg-amber-100 text-amber-700',    dot: 'bg-amber-400',   icon: <Clock        className="w-3.5 h-3.5" /> },
+  overdue:              { label: 'Quá hạn',           color: 'bg-red-100 text-red-700',        dot: 'bg-red-400',     icon: <AlertCircle  className="w-3.5 h-3.5" /> },
+};
+
+const filterTabs = [
+  { key: 'all',                 label: 'Tất cả' },
+  { key: 'pending_verification',label: 'Chờ xác nhận' },
+  { key: 'paid',                label: 'Đã thanh toán' },
+  { key: 'overdue',             label: 'Quá hạn' },
 ];
 
 export default function RevenuePage() {
   const [invoices, setInvoices] = useState(INITIAL_INVOICES);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch(status) {
-      case 'paid':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            Paid
-          </span>
-        );
-      case 'pending_verification':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
-            <Clock className="w-3.5 h-3.5" />
-            Verify Slip
-          </span>
-        );
-      case 'overdue':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
-            <AlertCircle className="w-3.5 h-3.5" />
-            Overdue
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-             {status}
-          </span>
-        );
-    }
-  };
-
-  const getAction = (status: string) => {
-    switch(status) {
-      case 'pending_verification':
-        return <button className="text-blue-600 hover:text-blue-700 text-sm font-medium hover:underline">Verify Slip</button>;
-      case 'overdue':
-        return <button className="text-red-600 hover:text-red-700 text-sm font-medium hover:underline">Send Reminder</button>;
-      default:
-        return <button className="text-gray-500 hover:text-gray-700 text-sm font-medium hover:underline">View</button>;
-    }
-  };
+  const fmt = (amount: number) =>
+    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 
   const handleCreateSuccess = (newInvoice: Invoice) => {
     setInvoices([newInvoice, ...invoices]);
   };
 
-  const filteredInvoices = invoices.filter(inv => 
-    inv.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    inv.client.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filtered = invoices.filter(inv => {
+    if (statusFilter !== 'all' && inv.status !== statusFilter) return false;
+    if (searchQuery && !inv.id.toLowerCase().includes(searchQuery.toLowerCase()) && !inv.client.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    return true;
+  });
+
+  const pendingAmt  = invoices.filter(i => i.status === 'pending_verification').reduce((s, i) => s + i.amount, 0);
+  const overdueAmt  = invoices.filter(i => i.status === 'overdue').reduce((s, i) => s + i.amount, 0);
+  const collectedAmt = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
+
+  const kpis = [
+    { label: 'Chờ xác nhận',      value: fmt(pendingAmt),  sub: `${invoices.filter(i => i.status === 'pending_verification').length} hóa đơn`, gradient: 'from-amber-500 to-orange-500', icon: Clock },
+    { label: 'Nợ quá hạn',        value: fmt(overdueAmt),  sub: 'Cần xử lý ngay',   gradient: 'from-rose-500 to-red-600',      icon: AlertCircle },
+    { label: 'Đã thu tháng này',   value: fmt(collectedAmt),sub: 'Tiếp tục phát huy!', gradient: 'from-emerald-500 to-teal-600', icon: TrendingUp },
+    { label: 'Tổng hóa đơn',      value: String(invoices.length), sub: 'trong hệ thống', gradient: 'from-blue-500 to-indigo-600', icon: FileText },
+  ];
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Payments & Invoices</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            Track collections, verify manual transfers, and manage invoicing.
-          </p>
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
+            Thanh toán & Hóa đơn
+          </h1>
+          <p className="text-gray-500 text-sm mt-1">Theo dõi thu tiền, xác nhận chuyển khoản và quản lý hóa đơn</p>
         </div>
-        <Button 
+        <button
           onClick={() => setShowCreateModal(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+          className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium text-sm shadow-sm hover:shadow-md hover:from-blue-600 hover:to-indigo-700 transition-all"
         >
-          <Plus className="w-4 h-4 mr-2" />
-          Create Invoice
-        </Button>
+          <Plus className="w-4 h-4" />
+          Tạo hóa đơn
+        </button>
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Pending Verification */}
-        <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <p className="text-gray-500 text-sm font-medium mb-2">Pending Verification</p>
-          <h3 className="text-3xl font-bold text-yellow-600">50.000.000 ₫</h3>
-          <p className="text-xs text-gray-400 mt-2">1 Invoice awaiting slip check</p>
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpis.map((k) => {
+          const Icon = k.icon;
+          return (
+            <div key={k.label} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center gap-4">
+              <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${k.gradient} flex items-center justify-center flex-shrink-0 shadow-sm`}>
+                <Icon className="w-5 h-5 text-white" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-lg font-bold text-gray-800 truncate">{k.value}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{k.label}</p>
+                <p className="text-xs text-gray-400">{k.sub}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
-        {/* Overdue Debt */}
-        <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
-          <p className="text-gray-500 text-sm font-medium mb-2">Overdue Debt</p>
-          <h3 className="text-3xl font-bold text-red-600">12.000.000 ₫</h3>
-          <p className="text-xs text-gray-400 mt-2">Needs immediate follow-up</p>
+      {/* Filter tabs + search */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {filterTabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setStatusFilter(tab.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                statusFilter === tab.key
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-
-        {/* Collected This Month */}
-        <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300 delay-150">
-          <p className="text-gray-500 text-sm font-medium mb-2">Collected this Month</p>
-          <h3 className="text-3xl font-bold text-green-600">1.500.000 ₫</h3>
-          <p className="text-xs text-gray-400 mt-2">Keep it up!</p>
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Tìm mã hóa đơn, khách hàng..."
+            className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
         </div>
       </div>
 
-      {/* Main Content Card */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-        {/* Toolbar */}
-        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row gap-4 justify-between items-center">
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search invoice # or client..." 
-              className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors">
-            <Filter className="w-4 h-4" />
-            Filter Status
-          </button>
-        </div>
-
-        {/* Table */}
+      {/* Table */}
+      <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 border-b border-gray-100 text-gray-500 font-medium uppercase text-xs">
+            <thead className="bg-gray-50/80 border-b border-gray-100">
               <tr>
-                <th className="px-6 py-4">Invoice ID</th>
-                <th className="px-6 py-4">Client</th>
-                <th className="px-6 py-4 text-right">Amount</th>
-                <th className="px-6 py-4">Due Date</th>
-                <th className="px-6 py-4 text-center">Status</th>
-                <th className="px-6 py-4 text-right">Action</th>
+                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Mã hóa đơn</th>
+                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Khách hàng</th>
+                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide text-right">Số tiền</th>
+                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Hạn thanh toán</th>
+                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide text-center">Trạng thái</th>
+                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredInvoices.length > 0 ? (
-                filteredInvoices.map((inv) => (
-                  <tr key={inv.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4 font-medium text-gray-900">{inv.id}</td>
-                    <td className="px-6 py-4 text-gray-600">{inv.client}</td>
-                    <td className="px-6 py-4 text-right font-medium text-gray-900">
-                      {formatCurrency(inv.amount)}
-                    </td>
-                    <td className="px-6 py-4 text-gray-500">{inv.dueDate}</td>
-                    <td className="px-6 py-4 text-center">
-                      {getStatusBadge(inv.status)}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {getAction(inv.status)}
-                    </td>
-                  </tr>
-                ))
+              {filtered.length > 0 ? (
+                filtered.map((inv) => {
+                  const cfg = statusConfig[inv.status] ?? { label: inv.status, color: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400', icon: <DollarSign className="w-3.5 h-3.5" /> };
+                  return (
+                    <tr key={inv.id} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="px-6 py-4 font-mono text-xs font-medium text-gray-800">{inv.id}</td>
+                      <td className="px-6 py-4 text-gray-700">{inv.client}</td>
+                      <td className="px-6 py-4 text-right font-semibold text-gray-800">{fmt(inv.amount)}</td>
+                      <td className="px-6 py-4 text-gray-500 text-xs">{inv.dueDate}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${cfg.color}`}>
+                          {cfg.icon}
+                          {cfg.label}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {inv.status === 'pending_verification' && (
+                          <button className="text-blue-600 hover:text-blue-700 text-xs font-medium hover:underline">Xác nhận slip</button>
+                        )}
+                        {inv.status === 'overdue' && (
+                          <button className="text-red-600 hover:text-red-700 text-xs font-medium hover:underline">Gửi nhắc nhở</button>
+                        )}
+                        {inv.status === 'paid' && (
+                          <button className="text-gray-500 hover:text-gray-700 text-xs font-medium hover:underline">Xem chi tiết</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-400">
-                    No invoices found matching your search.
+                  <td colSpan={6} className="px-6 py-16 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center">
+                        <FileText className="w-7 h-7 text-gray-300" />
+                      </div>
+                      <p className="text-gray-500 font-medium">Không tìm thấy hóa đơn</p>
+                      <p className="text-gray-400 text-xs">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm</p>
+                    </div>
                   </td>
                 </tr>
               )}
@@ -194,8 +190,8 @@ export default function RevenuePage() {
         </div>
       </div>
 
-      <CreateInvoiceModal 
-        open={showCreateModal} 
+      <CreateInvoiceModal
+        open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={handleCreateSuccess}
       />

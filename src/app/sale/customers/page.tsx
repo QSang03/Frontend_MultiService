@@ -912,7 +912,10 @@ export default function SaleCustomersPage() {
               <p className="text-blue-700">{identityResult.lead.name} - chuyển thẳng sang UC-2 (không tạo mới).</p>
             </div>
             <button
-              onClick={() => setActiveTab('pipeline')}
+              onClick={() => {
+                const client = mapSalesLeadsToClients([identityResult.lead!])[0];
+                openUc2FromClient(client);
+              }}
               className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700"
             >
               Tiếp tục UC-2
