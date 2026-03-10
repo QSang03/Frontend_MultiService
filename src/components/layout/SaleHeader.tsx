@@ -1,11 +1,13 @@
 'use client';
 
-import { Search, Bell, ChevronRight, LayoutDashboard } from 'lucide-react';
-import { useState } from 'react';
-import { usePathname } from 'next/navigation';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Bell } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { decodeRole } from '@/utils';
 
-const breadcrumbMap: Record<string, string> = {
+const pageTitleMap: Record<string, string> = {
   dashboard: 'Dashboard',
   customers: 'CRM & Leads',
   quotations: 'Quotes & Contracts',
@@ -13,45 +15,83 @@ const breadcrumbMap: Record<string, string> = {
   revenue: 'Payments & Invoices',
   contracts: 'Commissions',
   profile: 'Profile',
+  orders: 'Orders',
 };
 
 export default function SaleHeader() {
-  const [searchQuery, setSearchQuery] = useState('');
+  const { user, logout } = useAuth();
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const pathname = usePathname() ?? '';
+
   const segments = pathname.split('/').filter(Boolean);
   const currentSegment = segments[segments.length - 1] ?? '';
-  const pageLabel = breadcrumbMap[currentSegment] ?? currentSegment;
+  const pageTitle = pageTitleMap[currentSegment] ?? currentSegment;
+
+  const initials = useMemo(() => {
+    return (user?.name || 'AS').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2);
+  }, [user?.name]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-gray-100 px-6 py-3">
-      <div className="flex items-center justify-between gap-4">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1.5 text-sm">
-          <Link href="/sale/dashboard" className="text-gray-400 hover:text-gray-600 transition-colors">
-            <LayoutDashboard className="w-4 h-4" />
-          </Link>
-          <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
-          <span className="font-semibold text-gray-800">{pageLabel}</span>
-        </div>
+    <header translate="no" className="notranslate h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
+      <h1 className="text-xl font-semibold text-gray-900">{pageTitle}</h1>
 
-        <div className="flex items-center gap-3">
-          {/* Search Bar */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Tìm kiếm..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm w-52 focus:w-72 transition-all focus:outline-none focus:ring-2 focus:ring-violet-400 focus:border-transparent bg-gray-50 focus:bg-white"
-            />
-          </div>
+      <div className="flex items-center gap-4">
+        {/* Notification Bell */}
+        <button className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors">
+          <Bell className="w-5 h-5" />
+          <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+        </button>
 
-          {/* Notification Bell */}
-          <button className="relative p-2 text-gray-400 hover:text-gray-700 transition-colors rounded-xl hover:bg-gray-100">
-            <Bell className="w-4.5 h-4.5" style={{ width: '18px', height: '18px' }} />
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white"></span>
+        {/* User Dropdown */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setOpen((s) => !s)}
+            className="flex items-center gap-3 px-3 py-1 rounded-md hover:bg-gray-50 focus:outline-none"
+            aria-haspopup="true"
+            aria-expanded={open}
+          >
+            <div className="text-right hidden sm:block">
+              <p className="text-sm font-medium text-gray-900">
+                {user?.name || 'Sale Staff'}
+              </p>
+              <p className="text-xs text-gray-500">
+                {decodeRole(user?.role)}
+              </p>
+            </div>
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
+              {initials}
+            </div>
           </button>
+
+          {open && (
+            <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-100 rounded-lg shadow-lg z-50">
+              <div className="p-4">
+                <div className="mb-3">
+                  <p className="text-sm font-semibold text-gray-900">{user?.name || 'Sale Staff'}</p>
+                  <p className="text-xs text-gray-500">{user?.email || ''}</p>
+                </div>
+                <nav className="flex flex-col divide-y divide-gray-100">
+                  <Link href="/sale/profile" className="py-2 text-sm text-gray-700 hover:text-blue-600">
+                    My Profile
+                  </Link>
+                  <button onClick={() => { setOpen(false); logout(); }} className="py-2 text-sm text-red-600 text-left">
+                    Sign Out
+                  </button>
+                </nav>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </header>

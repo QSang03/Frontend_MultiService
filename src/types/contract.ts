@@ -39,6 +39,8 @@ export interface Contract {
   quotationId: string;
   customerId: string;
   customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
   orgId: string;
   title: string;
   templateId?: string;
@@ -137,6 +139,22 @@ export interface CreateRecurringScheduleResponse {
 export interface ApproveRenewalRequest {
   contractId: string;
   newEndDate: string;
+}
+
+export interface UploadRevisedContractRequest {
+  contractId: string;
+  fileType: string;
+  fileId: string;
+}
+
+export interface ContractTimelineEvent {
+  action: string;
+  actorId: string;
+  createdAt?: string;
+}
+
+export interface GetContractTimelineResponse {
+  events: ContractTimelineEvent[];
 }
 
 export interface ListTemplatesRequest {

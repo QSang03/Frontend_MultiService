@@ -30,8 +30,17 @@ import {
   ApproveRenewalResponse,
   ListTemplatesRequestSchema,
   ListTemplatesResponse,
+  UploadRevisedContractRequestSchema,
+  FinalizeContractRequestSchema,
+  GetContractTimelineRequestSchema,
   ContractStatus,
   SignatureMethod,
+} from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/contract_pb.js';
+
+import type {
+  UploadRevisedContractResponse,
+  FinalizeContractResponse,
+  GetContractTimelineResponse,
 } from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/contract_pb.js';
 
 import type {
@@ -361,6 +370,69 @@ export async function protoListTemplates(
     return { success: true, response };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'List templates failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Upload Revised Contract (updated PDF/Docx after review)
+ */
+export async function protoUploadRevisedContract(
+  contractId: string,
+  fileType: string,
+  fileId: string
+): Promise<ProtoContractResult<UploadRevisedContractResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(UploadRevisedContractRequestSchema, {
+        contractId,
+        fileType,
+        fileId,
+      });
+      return await client.uploadRevisedContract(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Upload revised contract failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Finalize Contract (DRAFT → PENDING_SIGNATURE)
+ */
+export async function protoFinalizeContract(
+  contractId: string
+): Promise<ProtoContractResult<FinalizeContractResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(FinalizeContractRequestSchema, { contractId });
+      return await client.finalizeContract(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Finalize contract failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Get Contract Timeline (signing events tracking)
+ */
+export async function protoGetContractTimeline(
+  contractId: string
+): Promise<ProtoContractResult<GetContractTimelineResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(GetContractTimelineRequestSchema, { contractId });
+      return await client.getContractTimeline(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get contract timeline failed';
     return { success: false, error: message };
   }
 }

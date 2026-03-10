@@ -10,7 +10,9 @@ import {
   Filter, 
   Eye, 
   RefreshCw,
-  Loader2
+  Loader2,
+  Mail,
+  Phone,
 } from 'lucide-react';
 import { Card, CardBody } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
@@ -103,7 +105,10 @@ export default function ContractsList({
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(c => 
         c.id.toLowerCase().includes(term) ||
+        c.customerId?.toLowerCase().includes(term) ||
         c.customerName?.toLowerCase().includes(term) ||
+        c.customerEmail?.toLowerCase().includes(term) ||
+        c.customerPhone?.toLowerCase().includes(term) ||
         c.title?.toLowerCase().includes(term) ||
         c.templateName?.toLowerCase().includes(term)
       );
@@ -117,11 +122,7 @@ export default function ContractsList({
   }, [contracts, searchTerm, statusFilter]);
 
   const handleSendForSignature = async (contract: Contract) => {
-    const result = await sendForSignature(contract.id);
-    if (result?.signingUrl) {
-      // Could open signing URL in new tab or modal
-      window.open(result.signingUrl, '_blank');
-    }
+    await sendForSignature(contract.id);
   };
 
   const handleRenewal = async (contract: Contract) => {
@@ -163,7 +164,7 @@ export default function ContractsList({
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat, index) => (
-          <Card key={index}>
+          <Card key={index} className="animate-contract-scale-in" style={{ animationDelay: `${index * 50}ms` }}>
             <CardBody className="flex items-center justify-between p-6">
               <div>
                 <p className="text-sm font-medium text-gray-500">{stat.label}</p>
@@ -178,7 +179,7 @@ export default function ContractsList({
       </div>
 
       {/* Filter & Search */}
-      <Card>
+      <Card className="animate-contract-fade-up" style={{ animationDelay: '120ms' }}>
         <CardBody className="p-0">
           <div className="p-4 border-b border-gray-100">
             <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
@@ -260,15 +261,37 @@ export default function ContractsList({
                     </td>
                   </tr>
                 ) : (
-                  filteredContracts.map((contract) => {
+                  filteredContracts.map((contract, index) => {
                     const statusStr = contractStatusToString(contract.status as ContractStatus);
                     return (
-                      <tr key={contract.id} className="hover:bg-gray-50/50">
+                      <tr key={contract.id} className="hover:bg-gray-50/50 animate-contract-fade-up" style={{ animationDelay: `${180 + index * 35}ms` }}>
                         <td className="px-6 py-4 font-medium">
                           <div className="text-blue-600 font-bold">{contract.id}</div>
                           <div className="text-xs text-gray-400">Ref: {contract.quotationId}</div>
                         </td>
-                        <td className="px-6 py-4 font-medium">{contract.customerName}</td>
+                        <td className="px-6 py-4 font-medium">
+                          <div className="group/customer relative inline-block max-w-[220px] cursor-help">
+                            <div className="truncate text-gray-800">
+                              {contract.customerName || contract.customerId || '-'}
+                            </div>
+                            <div className="pointer-events-none absolute left-0 top-full mt-1 w-64 rounded-lg border border-gray-200 bg-white p-3 shadow-lg z-20 opacity-0 invisible translate-y-1 transition-all duration-150 ease-out group-hover/customer:opacity-100 group-hover/customer:visible group-hover/customer:translate-y-0">
+                              <div className="text-xs font-semibold text-gray-900 truncate">
+                                {contract.customerName || 'Unknown Customer'}
+                              </div>
+                              <div className="text-[10px] text-gray-400 font-mono mt-0.5 truncate">ID: {contract.customerId || '-'}</div>
+                              <div className="mt-2 space-y-1.5 text-[11px] text-gray-600">
+                                <div className="flex items-center gap-1.5">
+                                  <Mail className="w-3.5 h-3.5 text-gray-400" />
+                                  <span className="truncate">{contract.customerEmail || 'Chua co email'}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <Phone className="w-3.5 h-3.5 text-gray-400" />
+                                  <span className="truncate">{contract.customerPhone || 'Chua co so dien thoai'}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </td>
                         <td className="px-6 py-4 text-gray-600 truncate max-w-xs" title={contract.templateName || contract.title}>
                           {contract.templateName || contract.title}
                         </td>
@@ -284,10 +307,10 @@ export default function ContractsList({
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex justify-end gap-2">
-                            {statusStr === 'Pending Signature' && (
+                            {statusStr === 'Draft' && (
                               <button 
                                 className="p-1 hover:bg-gray-100 rounded text-purple-600 transition-colors" 
-                                title="Sign"
+                                title="Lấy chữ ký"
                                 onClick={() => onSignContract ? onSignContract(contract) : handleSendForSignature(contract)}
                               >
                                 <PenTool className="w-4 h-4" />

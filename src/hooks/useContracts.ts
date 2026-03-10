@@ -13,7 +13,64 @@ import type {
   CreateRecurringScheduleResponse,
   SendForSignatureResponse,
   SignContractResponse,
+  ContractTimelineEvent,
 } from '@/types/contract';
+
+const toIsoString = (value: unknown): string => {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return new Date(value).toISOString();
+  if (typeof value === 'object') {
+    const obj = value as { seconds?: string | number; nanos?: number };
+    if (obj.seconds !== undefined) {
+      const seconds = Number(obj.seconds);
+      if (!Number.isNaN(seconds)) return new Date(seconds * 1000).toISOString();
+    }
+  }
+  return '';
+};
+
+const toNumberValue = (value: unknown): number => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const normalizeContract = (raw: Contract): Contract => {
+  const rawRecord = raw as unknown as Record<string, unknown>;
+  const lineItems = Array.isArray(raw.lineItems)
+    ? raw.lineItems.map((item) => ({
+        ...item,
+        unitPrice: toNumberValue((item as unknown as { unitPrice?: unknown }).unitPrice),
+        totalPrice: toNumberValue(
+          (item as unknown as { totalPrice?: unknown; subtotal?: unknown }).totalPrice ??
+            (item as unknown as { subtotal?: unknown }).subtotal
+        ),
+      }))
+    : [];
+
+  return {
+    ...raw,
+    status: toNumberValue(raw.status) as Contract['status'],
+    totalValue: toNumberValue(raw.totalValue),
+    customerName: String(rawRecord.customerName ?? rawRecord.customer_name ?? raw.customerName ?? raw.customerId ?? ''),
+    customerEmail: String(rawRecord.customerEmail ?? rawRecord.customer_email ?? raw.customerEmail ?? ''),
+    customerPhone: String(rawRecord.customerPhone ?? rawRecord.customer_phone ?? raw.customerPhone ?? ''),
+    createdAt: toIsoString(raw.createdAt) || String(raw.createdAt ?? ''),
+    updatedAt: toIsoString(raw.updatedAt) || String(raw.updatedAt ?? ''),
+    signedAt: raw.signedAt ? toIsoString(raw.signedAt) || String(raw.signedAt) : undefined,
+    lineItems,
+  };
+};
+
+const normalizeTimelineEvents = (events: ContractTimelineEvent[]): ContractTimelineEvent[] =>
+  (Array.isArray(events) ? events : []).map((evt) => ({
+    ...evt,
+    createdAt: toIsoString((evt as unknown as { createdAt?: unknown }).createdAt) || undefined,
+  }));
 
 interface UseContractsReturn {
   // State
@@ -38,6 +95,11 @@ interface UseContractsReturn {
   // Renewal & Schedules
   approveRenewal: (contractId: string, newEndDate: string) => Promise<Contract | null>;
   createRecurringSchedule: (data: CreateRecurringScheduleRequest) => Promise<CreateRecurringScheduleResponse | null>;
+  
+  // New UC-4 lifecycle methods
+  uploadRevisedContract: (contractId: string, fileType: string, fileId: string) => Promise<Contract | null>;
+  finalizeContract: (contractId: string) => Promise<Contract | null>;
+  getContractTimeline: (contractId: string) => Promise<ContractTimelineEvent[]>;
   
   // Templates
   listTemplates: (category?: string, activeOnly?: boolean) => Promise<ContractTemplate[]>;
@@ -76,7 +138,7 @@ export function useContracts(): UseContractsReturn {
       
       if (response.data.success) {
         const data: ListContractsResponse = response.data.data;
-        setContracts(data.contracts);
+        setContracts((data.contracts || []).map(normalizeContract));
         setTotalCount(data.totalCount);
         setNextPageToken(data.nextPageToken);
       } else {
@@ -104,7 +166,7 @@ export function useContracts(): UseContractsReturn {
       const response = await internalApiClient.get(`/api/contracts/${contractId}`);
       
       if (response.data.success) {
-        return response.data.data.contract;
+        return normalizeContract(response.data.data.contract);
       } else {
         setError(response.data.error || 'Failed to get contract');
         return null;
@@ -128,7 +190,7 @@ export function useContracts(): UseContractsReturn {
       
       if (response.data.success) {
         await refresh(); // Refresh list after creation
-        return response.data.data.contract;
+        return normalizeContract(response.data.data.contract);
       } else {
         setError(response.data.error || 'Failed to create contract');
         return null;
@@ -152,7 +214,7 @@ export function useContracts(): UseContractsReturn {
       
       if (response.data.success) {
         await refresh();
-        return response.data.data.contract;
+        return normalizeContract(response.data.data.contract);
       } else {
         setError(response.data.error || 'Failed to cancel contract');
         return null;
@@ -228,7 +290,7 @@ export function useContracts(): UseContractsReturn {
       
       if (response.data.success) {
         await refresh();
-        return response.data.data.contract;
+        return normalizeContract(response.data.data.contract);
       } else {
         setError(response.data.error || 'Failed to activate contract');
         return null;
@@ -252,7 +314,7 @@ export function useContracts(): UseContractsReturn {
       
       if (response.data.success) {
         await refresh();
-        return response.data.data.contract;
+        return normalizeContract(response.data.data.contract);
       } else {
         setError(response.data.error || 'Failed to approve renewal');
         return null;
@@ -286,6 +348,74 @@ export function useContracts(): UseContractsReturn {
       return null;
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  // Upload revised contract
+  const uploadRevisedContract = useCallback(async (contractId: string, fileType: string, fileId: string): Promise<Contract | null> => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await internalApiClient.post(`/api/contracts/${contractId}/upload-revised`, { fileType, fileId });
+      
+      if (response.data.success) {
+        await refresh();
+        return normalizeContract(response.data.data.contract);
+      } else {
+        setError(response.data.error || 'Failed to upload revised contract');
+        return null;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to upload revised contract';
+      setError(message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [refresh]);
+
+  // Finalize contract (DRAFT → PENDING_SIGNATURE)
+  const finalizeContract = useCallback(async (contractId: string): Promise<Contract | null> => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await internalApiClient.post(`/api/contracts/${contractId}/finalize`);
+      
+      if (response.data.success) {
+        await refresh();
+        return normalizeContract(response.data.data.contract);
+      } else {
+        setError(response.data.error || 'Failed to finalize contract');
+        return null;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to finalize contract';
+      setError(message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, [refresh]);
+
+  // Get contract timeline events
+  const getContractTimeline = useCallback(async (contractId: string): Promise<ContractTimelineEvent[]> => {
+    setError(null);
+    
+    try {
+      const response = await internalApiClient.get(`/api/contracts/${contractId}/timeline`);
+      
+      if (response.data.success) {
+        return normalizeTimelineEvents(response.data.data.events || []);
+      } else {
+        setError(response.data.error || 'Failed to get timeline');
+        return [];
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to get timeline';
+      setError(message);
+      return [];
     }
   }, []);
 
@@ -333,6 +463,9 @@ export function useContracts(): UseContractsReturn {
     activateContract,
     approveRenewal,
     createRecurringSchedule,
+    uploadRevisedContract,
+    finalizeContract,
+    getContractTimeline,
     listTemplates,
     clearError,
     refresh,
