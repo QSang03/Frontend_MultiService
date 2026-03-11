@@ -18,6 +18,7 @@ import {
   Upload,
   Shield,
   Zap,
+  Loader2,
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { Card, CardBody } from '@/components/ui/Card';
@@ -118,6 +119,11 @@ export default function ContractDetailModal({
   const [timelineEvents, setTimelineEvents] = useState<ContractTimelineEvent[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'info' | 'timeline'>('info');
+  const [showUploadPanel, setShowUploadPanel] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const uploadInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -125,6 +131,9 @@ export default function ContractDetailModal({
       setNewEndDate('');
       setActiveTab('info');
       setTimelineEvents([]);
+      setShowUploadPanel(false);
+      setUploadFile(null);
+      setUploadError(null);
     }
   }, [open]);
 
@@ -182,6 +191,32 @@ export default function ContractDetailModal({
       setShowRenewForm(false);
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleUploadRevisedFile = async () => {
+    if (!onUploadRevised || !uploadFile) return;
+    setUploadLoading(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadFile);
+      const res = await fetch('/api/sale/chat/upload', { method: 'POST', body: formData });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error((errData as { error?: string }).error || 'Upload thất bại');
+      }
+      const data = await res.json() as { file_id: string };
+      const fileId = data.file_id;
+      const ext = uploadFile.name.split('.').pop()?.toLowerCase() || 'pdf';
+      const fileType = ext === 'docx' ? 'docx' : 'pdf';
+      await onUploadRevised(contract, fileType, fileId);
+      setShowUploadPanel(false);
+      setUploadFile(null);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Lỗi upload');
+    } finally {
+      setUploadLoading(false);
     }
   };
 
@@ -487,6 +522,66 @@ export default function ContractDetailModal({
           )}
         </div>
 
+        {/* Upload Revised Panel */}
+        {showUploadPanel && (
+          <div className="px-6 py-4 border-t bg-blue-50">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-blue-800">Upload bản hợp đồng mới (PDF / DOCX)</p>
+              <button
+                onClick={() => { setShowUploadPanel(false); setUploadFile(null); setUploadError(null); }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                setUploadFile(f);
+                setUploadError(null);
+              }}
+            />
+            <div
+              className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center cursor-pointer hover:border-blue-500 transition-colors bg-white"
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              {uploadFile ? (
+                <div className="flex items-center justify-center gap-2 text-sm text-gray-700">
+                  <FileText className="w-4 h-4 text-blue-600" />
+                  <span className="font-medium truncate max-w-xs">{uploadFile.name}</span>
+                  <span className="text-gray-400 text-xs">({(uploadFile.size / 1024).toFixed(1)} KB)</span>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">
+                  <Upload className="w-5 h-5 mx-auto mb-1 text-blue-400" />
+                  Nhấn để chọn file PDF hoặc DOCX
+                </div>
+              )}
+            </div>
+            {uploadError && (
+              <p className="mt-2 text-xs text-red-600">{uploadError}</p>
+            )}
+            <div className="flex justify-end gap-2 mt-3">
+              <Button variant="outline" size="sm" onClick={() => { setShowUploadPanel(false); setUploadFile(null); setUploadError(null); }}>
+                Hủy
+              </Button>
+              <Button
+                size="sm"
+                leftIcon={uploadLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                onClick={handleUploadRevisedFile}
+                isLoading={uploadLoading}
+                disabled={!uploadFile || uploadLoading}
+              >
+                Xác nhận upload
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Footer Actions */}
         <div className="flex justify-between items-center px-6 py-4 border-t bg-gray-50">
           <div className="flex gap-2">
@@ -540,15 +635,9 @@ export default function ContractDetailModal({
                 variant="outline"
                 leftIcon={<Upload className="w-4 h-4" />}
                 onClick={() => {
-                  // Trigger a simple file-id prompt (in a real app, integrate with StorageService)
-                  const fileId = prompt('Nhập File ID từ StorageService:');
-                  if (fileId) {
-                    const fileType = prompt('Loại file (pdf/docx):', 'docx');
-                    if (fileType) {
-                      setActionLoading(true);
-                      onUploadRevised(contract, fileType, fileId).finally(() => setActionLoading(false));
-                    }
-                  }
+                  setShowUploadPanel(true);
+                  setUploadFile(null);
+                  setUploadError(null);
                 }}
               >
                 Upload bản mới

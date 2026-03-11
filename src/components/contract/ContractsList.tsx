@@ -307,7 +307,7 @@ export default function ContractsList({
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex justify-end gap-2">
-                            {statusStr === 'Draft' && (
+                            {contract.status === ContractStatus.DRAFT && (
                               <button 
                                 className="p-1 hover:bg-gray-100 rounded text-purple-600 transition-colors" 
                                 title="Lấy chữ ký"
@@ -316,7 +316,7 @@ export default function ContractsList({
                                 <PenTool className="w-4 h-4" />
                               </button>
                             )}
-                            {statusStr === 'Expired' && (
+                            {contract.status === ContractStatus.EXPIRED && (
                               <button 
                                 className="p-1 hover:bg-gray-100 rounded text-green-600 transition-colors" 
                                 title="Renew"
