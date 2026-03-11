@@ -295,6 +295,43 @@ export default function SaleQuotationsPage() {
   const customerSearchRef = useRef<HTMLInputElement>(null);
   const ticketSearchRef = useRef<HTMLInputElement>(null);
 
+  // Track unsaved form data via ref to avoid stale closure in ESC handler
+  const hasFormDataRef = useRef(false);
+  hasFormDataRef.current = !!(selectedCustomerId || quotationItemRows.length > 0 || quotationNote || (quotationTotalAmount && quotationTotalAmount !== '0'));
+
+  const resetCreateForm = () => {
+    setSelectedClient('');
+    setSelectedCustomerId('');
+    setSelectedTemplateId('');
+    setTicketId('');
+    setSelectedTicketTitle('');
+    setQuotationTotalAmount('');
+    setQuotationTaxAmount('');
+    setQuotationCurrency('VND');
+    setQuotationNote('');
+    setQuotationItemRows([]);
+    setMarginResult(null);
+    setCustomerSearch('');
+    setTicketSearch('');
+  };
+
+  const handleCloseCreateModal = () => {
+    const hasData = !!(selectedCustomerId || quotationItemRows.length > 0 || quotationNote || (quotationTotalAmount && quotationTotalAmount !== '0'));
+    if (hasData) {
+      setConfirmAction({
+        title: 'Hủy tạo báo giá?',
+        message: 'Bạn có dữ liệu chưa lưu. Đóng sẽ mất toàn bộ thông tin đã nhập.',
+        onConfirm: () => {
+          setShowCreateModal(false);
+          resetCreateForm();
+          setConfirmAction(null);
+        },
+      });
+    } else {
+      setShowCreateModal(false);
+    }
+  };
+
   const fetchCustomers = async (search = '') => {
     setLoadingCustomers(true);
     try {
@@ -343,7 +380,17 @@ export default function SaleQuotationsPage() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowCreateModal(false);
+      if (e.key === 'Escape') {
+        if (hasFormDataRef.current) {
+          setConfirmAction({
+            title: 'Hủy tạo báo giá?',
+            message: 'Bạn có dữ liệu chưa lưu. Đóng sẽ mất toàn bộ thông tin đã nhập.',
+            onConfirm: () => { setShowCreateModal(false); setConfirmAction(null); },
+          });
+        } else {
+          setShowCreateModal(false);
+        }
+      }
       // Ctrl+N / Cmd+N to open create modal
       if ((e.ctrlKey || e.metaKey) && e.key === 'n' && !showCreateModal) {
         e.preventDefault();
@@ -654,16 +701,7 @@ export default function SaleQuotationsPage() {
       addToast(`Đã tạo báo giá: ${newQid}`, { type: 'success' });
       // Reset form và đóng modal
       setShowCreateModal(false);
-      setSelectedClient('');
-      setSelectedCustomerId('');
-      setSelectedTemplateId('');
-      setTicketId('');
-      setSelectedTicketTitle('');
-      setQuotationTotalAmount('');
-      setQuotationTaxAmount('');
-      setQuotationCurrency('VND');
-      setQuotationNote('');
-      setQuotationItemRows([]);
+      resetCreateForm();
       setMainTab('pipeline');
     } catch {
       addToast('Lỗi kết nối khi tạo báo giá.', { type: 'error' });
@@ -1592,7 +1630,7 @@ export default function SaleQuotationsPage() {
       {showCreateModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowCreateModal(false); }}
+          onClick={(e) => { if (e.target === e.currentTarget) handleCloseCreateModal(); }}
         >
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
@@ -1607,7 +1645,7 @@ export default function SaleQuotationsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="hidden sm:inline-flex text-[10px] text-gray-400 border border-gray-200 rounded px-1.5 py-0.5">ESC để đóng</span>
-                <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                <button onClick={handleCloseCreateModal} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -1925,7 +1963,7 @@ export default function SaleQuotationsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setShowCreateModal(false)}
+                  onClick={handleCloseCreateModal}
                   className="px-4 py-2 text-sm font-medium rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
                 >
                   Hủy
