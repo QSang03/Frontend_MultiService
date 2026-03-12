@@ -75,8 +75,14 @@ type MarginResult = {
   totalCost: string;
 };
 type QuotationItemRow = { description: string; quantity: string; unit_price: string };
-type CustomerOption = { id: string; name: string; company: string; email?: string };
+type CustomerOption = { id: string; name: string; company: string; email?: string; orgId?: string };
 type TicketOption = { id: string; title: string; status: number; creatorId?: string };
+type OrgCreditBalance = {
+  orgId?: string;
+  creditLimit?: string;
+  availableCredit?: string;
+  outstandingBalance?: string;
+};
 
 // UC-9 types
 type RealQuotation = {
@@ -216,6 +222,11 @@ export default function SaleQuotationsPage() {
   const [loadingSubmitQuotation, setLoadingSubmitQuotation] = useState(false);
   const [loadingMargin, setLoadingMargin] = useState(false);
   const { addToast } = useToast();
+
+  // Credit balance warning
+  const [orgCreditBalance, setOrgCreditBalance] = useState<OrgCreditBalance | null>(null);
+  const [showCreditWarning, setShowCreditWarning] = useState(false);
+  const [, setPendingQuotationSubmit] = useState(false);
 
   // UC-9: Main tab
   const [mainTab, setMainTab] = useState<MainTab>('pipeline');
@@ -602,6 +613,34 @@ export default function SaleQuotationsPage() {
       addToast('Vui lòng chọn Khách hàng trước khi tạo báo giá.', { type: 'error' });
       return;
     }
+    
+    // Check credit balance before submitting
+    const customer = customers.find(c => c.id === selectedCustomerId);
+    if (customer?.orgId) {
+      setLoadingSubmitQuotation(true);
+      try {
+        const creditRes = await fetch(`/api/sale/commissions/org-credit/${encodeURIComponent(customer.orgId)}`);
+        const creditData = await creditRes.json();
+        if (creditRes.ok && creditData?.data) {
+          setOrgCreditBalance(creditData.data);
+          const outstanding = parseFloat(String(creditData.data?.outstandingBalance ?? '0').replace(/[^\d.-]/g, ''));
+          if (outstanding > 0) {
+            setPendingQuotationSubmit(true);
+            setShowCreditWarning(true);
+            setLoadingSubmitQuotation(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch credit balance:', err);
+        // Continue with submission even if credit check fails
+      }
+    }
+    
+    await performQuotationSubmit();
+  };
+
+  const performQuotationSubmit = async () => {
     setLoadingSubmitQuotation(true);
     try {
       const response = await fetch('/api/sale/quotations/create', {
@@ -665,11 +704,29 @@ export default function SaleQuotationsPage() {
       setQuotationNote('');
       setQuotationItemRows([]);
       setMainTab('pipeline');
+      setPendingQuotationSubmit(false);
+      setShowCreditWarning(false);
     } catch {
       addToast('Lỗi kết nối khi tạo báo giá.', { type: 'error' });
     } finally {
       setLoadingSubmitQuotation(false);
     }
+  };
+
+  const handleConfirmCreditWarning = () => {
+    setShowCreditWarning(false);
+    performQuotationSubmit();
+  };
+
+  const handleCancelCreditWarning = () => {
+    setShowCreditWarning(false);
+    setPendingQuotationSubmit(false);
+  };
+
+  const formatCurrency = (value?: string): string => {
+    if (!value) return '0 ₫';
+    const num = parseFloat(String(value).replace(/[^\d.-]/g, ''));
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
   };
 
   const handleCalculateMargin = async () => {
@@ -2041,6 +2098,53 @@ export default function SaleQuotationsPage() {
               <button onClick={confirmAction.onConfirm}
                 className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-amber-600 text-white hover:bg-amber-700 transition-colors">
                 Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Credit Balance Warning Modal */}
+      {showCreditWarning && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => handleCancelCreditWarning()}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 text-center">
+              <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
+                <AlertTriangle className="w-7 h-7 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 mb-2">Khách Hàng Có Công Nợ</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Khách hàng này hiện có số dư âm trong tài khoản tín dụng tổ chức.
+              </p>
+              {orgCreditBalance && (
+                <div className="bg-red-50 rounded-lg p-3 mb-4 space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Hạn mức tín dụng:</span>
+                    <span className="font-semibold text-gray-900">{formatCurrency(orgCreditBalance.creditLimit)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Tín dụng khả dụng:</span>
+                    <span className="font-semibold text-emerald-700">{formatCurrency(orgCreditBalance.availableCredit)}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-t border-red-200 pt-2">
+                    <span className="text-red-700 font-semibold">Số dư âm:</span>
+                    <span className="font-bold text-red-700">{formatCurrency(orgCreditBalance.outstandingBalance)}</span>
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-gray-500 mb-4">
+                Bạn có thể tiếp tục tạo báo giá, nhưng hãy đảm bảo khách hàng biết về tình hình công nợ này.
+              </p>
+            </div>
+            <div className="px-5 pb-5 flex items-center gap-2">
+              <button onClick={() => handleCancelCreditWarning()}
+                className="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
+                Quay lại
+              </button>
+              <button onClick={() => handleConfirmCreditWarning()}
+                className="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
+                Tiếp tục tạo báo giá
               </button>
             </div>
           </div>

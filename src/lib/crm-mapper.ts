@@ -2,6 +2,7 @@ type UnknownRecord = Record<string, unknown>;
 
 export type SalesLeadDto = {
   id: string;
+  orgId?: string;
   name: string;
   company: string;
   title: string;
@@ -21,9 +22,17 @@ export function mapUserProfileToSalesLead(user: unknown, verificationState?: Sal
   const organization = ((profile.organization ?? {}) as UnknownRecord);
   const fullName = String(profile.fullName ?? profile.full_name ?? '').trim();
   const isGuest = Boolean(profile.isGuest ?? profile.is_guest ?? false);
+  const organizationId = String(
+    profile.organizationId ??
+    profile.organization_id ??
+    organization.id ??
+    organization.organizationId ??
+    ''
+  ).trim();
 
   return {
     id: String(profile.id ?? ''),
+    orgId: organizationId || undefined,
     name: fullName || 'Unknown User',
     company: String(organization.name ?? 'Individual'),
     title: isGuest ? 'Guest Prospect' : 'Customer',

@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  AlertTriangle,
   Users,
   Search,
   Plus,
   Mail,
   Building,
+  Landmark,
   Filter,
   ChevronRight,
   Loader2,
@@ -21,12 +23,14 @@ type Tab = 'pipeline' | 'directory';
 type IdentityCase = 'A' | 'B' | 'C';
 
 interface SalesLead extends Lead {
+  orgId?: string;
   identityType: 'customer' | 'guest' | 'new';
   verificationState: 'unverified' | 'otp_sent' | 'verified' | 'converted';
 }
 
 interface Client {
   id: string;
+  orgId?: string;
   name: string;
   company: string;
   email: string;
@@ -61,6 +65,13 @@ type Uc2Schema = {
     }
   >;
   required?: string[];
+};
+
+type OrgCreditBalance = {
+  orgId?: string;
+  creditLimit?: string;
+  availableCredit?: string;
+  outstandingBalance?: string;
 };
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -117,6 +128,17 @@ export default function SaleCustomersPage() {
   const [customerNextPageToken, setCustomerNextPageToken] = useState('');
   const [loadingMoreLeads, setLoadingMoreLeads] = useState(false);
   const [loadingMoreCustomers, setLoadingMoreCustomers] = useState(false);
+  const [orgCreditBalance, setOrgCreditBalance] = useState<OrgCreditBalance | null>(null);
+  const [orgCreditLoading, setOrgCreditLoading] = useState(false);
+  const [orgCreditError, setOrgCreditError] = useState('');
+
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+
+  const parseMoneyString = (value?: string) => {
+    const parsed = Number(String(value ?? '0').replace(/[^\d.-]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
 
   const mergeLeadsById = (current: SalesLead[], incoming: SalesLead[]) => {
     const map = new Map<string, SalesLead>();
@@ -137,6 +159,7 @@ export default function SaleCustomersPage() {
       const customerType: Client['type'] = customer.company && customer.company !== 'Individual' ? 'B2B' : 'B2C';
       return {
         id: customer.id,
+        orgId: customer.orgId,
         name: customer.name,
         company: customer.company || 'N/A',
         email: customer.email,
@@ -290,6 +313,59 @@ export default function SaleCustomersPage() {
       setCaseCCreateAttempted(false);
     }
   }, [identityResult?.caseType]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadOrgCreditBalance = async () => {
+      const orgId = String(selectedClient?.orgId ?? '').trim();
+
+      if (!selectedClient) {
+        setOrgCreditBalance(null);
+        setOrgCreditError('');
+        setOrgCreditLoading(false);
+        return;
+      }
+
+      if (!orgId) {
+        setOrgCreditBalance(null);
+        setOrgCreditError('Khách này chưa có org_id để tra công nợ tổ chức.');
+        setOrgCreditLoading(false);
+        return;
+      }
+
+      setOrgCreditLoading(true);
+      setOrgCreditError('');
+
+      try {
+        const response = await fetch(`/api/sale/commissions/org-credit/${encodeURIComponent(orgId)}`, { cache: 'no-store' });
+        const json = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(json?.error || 'Không lấy được công nợ tổ chức.');
+        }
+
+        if (!cancelled) {
+          setOrgCreditBalance((json?.data ?? null) as OrgCreditBalance | null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setOrgCreditBalance(null);
+          setOrgCreditError(error instanceof Error ? error.message : 'Không lấy được công nợ tổ chức.');
+        }
+      } finally {
+        if (!cancelled) {
+          setOrgCreditLoading(false);
+        }
+      }
+    };
+
+    void loadOrgCreditBalance();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClient]);
 
   const handleLoadMoreLeads = async () => {
     if (!leadNextPageToken || loadingMoreLeads) return;
@@ -1491,6 +1567,58 @@ export default function SaleCustomersPage() {
                     )}
                   </div>
                 )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                <div className="flex items-start justify-between gap-3 mb-5">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Credit & Debt Check</h3>
+                    <p className="text-sm text-gray-500 mt-1">Tra cứu hạn mức và công nợ trước khi tạo báo giá hoặc ticket mới.</p>
+                  </div>
+                  <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
+                    <Landmark className="w-5 h-5 text-amber-600" />
+                  </div>
+                </div>
+
+                {selectedClient.orgId ? (
+                  <p className="text-xs text-gray-400 mb-4">Org ID: {selectedClient.orgId}</p>
+                ) : null}
+
+                {orgCreditError ? (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 flex gap-2">
+                    <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span>{orgCreditError}</span>
+                  </div>
+                ) : null}
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Credit Limit</p>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {orgCreditLoading ? 'Đang tải...' : formatCurrency(parseMoneyString(orgCreditBalance?.creditLimit))}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Available Credit</p>
+                    <p className="text-sm font-semibold text-emerald-700">
+                      {orgCreditLoading ? 'Đang tải...' : formatCurrency(parseMoneyString(orgCreditBalance?.availableCredit))}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Outstanding Balance</p>
+                    <p className={`text-sm font-semibold ${parseMoneyString(orgCreditBalance?.outstandingBalance) > 0 ? 'text-rose-700' : 'text-gray-900'}`}>
+                      {orgCreditLoading ? 'Đang tải...' : formatCurrency(parseMoneyString(orgCreditBalance?.outstandingBalance))}
+                    </p>
+                  </div>
+                </div>
+
+                {!orgCreditLoading && !orgCreditError ? (
+                  <p className="mt-4 text-xs text-gray-500">
+                    {parseMoneyString(orgCreditBalance?.outstandingBalance) > 0
+                      ? 'Khách đang có công nợ, nên cân nhắc yêu cầu thanh toán trước khi triển khai mới.'
+                      : 'Khách hiện không có công nợ nổi bật theo dữ liệu tổ chức.'}
+                  </p>
+                ) : null}
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex-1">

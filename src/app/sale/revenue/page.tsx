@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Plus, Search, AlertCircle, CheckCircle2, Clock, DollarSign, TrendingUp, FileText } from 'lucide-react';
 import CreateInvoiceModal from './CreateInvoiceModal';
+import { useToast } from '@/components/ui';
 
 interface Invoice {
   id: string;
@@ -36,6 +37,7 @@ export default function RevenuePage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const { addToast } = useToast();
 
   const fmt = (amount: number) =>
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -160,13 +162,28 @@ export default function RevenuePage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         {inv.status === 'pending_verification' && (
-                          <button className="text-blue-600 hover:text-blue-700 text-xs font-medium hover:underline">Xác nhận slip</button>
+                          <button
+                            onClick={() => addToast(`Đã gửi xác nhận slip cho ${inv.client}`, { type: 'info' })}
+                            className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                          >
+                            Xác nhận slip
+                          </button>
                         )}
                         {inv.status === 'overdue' && (
-                          <button className="text-red-600 hover:text-red-700 text-xs font-medium hover:underline">Gửi nhắc nhở</button>
+                          <button
+                            onClick={() => addToast(`Đã gửi nhắc nhở thanh toán cho ${inv.client}`, { type: 'success' })}
+                            className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+                          >
+                            Gửi nhắc nhở
+                          </button>
                         )}
                         {inv.status === 'paid' && (
-                          <button className="text-gray-500 hover:text-gray-700 text-xs font-medium hover:underline">Xem chi tiết</button>
+                          <button
+                            onClick={() => addToast(`Chi tiết hóa đơn ${inv.id}`, { type: 'info' })}
+                            className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                          >
+                            Xem chi tiết
+                          </button>
                         )}
                       </td>
                     </tr>

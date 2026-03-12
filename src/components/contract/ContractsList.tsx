@@ -262,7 +262,6 @@ export default function ContractsList({
                   </tr>
                 ) : (
                   filteredContracts.map((contract, index) => {
-                    const statusStr = contractStatusToString(contract.status as ContractStatus);
                     return (
                       <tr key={contract.id} className="hover:bg-gray-50/50 animate-contract-fade-up" style={{ animationDelay: `${180 + index * 35}ms` }}>
                         <td className="px-6 py-4 font-medium">
