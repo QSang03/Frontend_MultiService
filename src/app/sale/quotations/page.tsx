@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import { FileText, Plus, Send, AlertCircle, X, Calculator, Loader2, AlertTriangle, CheckCircle2, TrendingUp, Search, BookOpen, GitBranch, RefreshCw, ArrowRightCircle, Link2, ChevronDown, ChevronUp, ChevronsUpDown, ChevronLeft, ChevronRight, Copy, Check, BarChart3, ScrollText, Mail, Phone } from 'lucide-react';
 import { useToast } from '@/components/ui';
 import ContractsList from '@/components/contract/ContractsList';
@@ -203,6 +205,7 @@ const mockTemplates: Template[] = [
 ];
 
 export default function SaleQuotationsPage() {
+  const router = useRouter();
   const [quotes, setQuotes] = useState<Quote[]>(mockQuotes);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -367,8 +370,13 @@ export default function SaleQuotationsPage() {
 
   // UC-9: Load real data on mount
   useEffect(() => {
-    void fetchRealQuotations();
-    void fetchRealTemplates();
+    const init = async () => {
+      const authReady = await ensureAuthReady();
+      if (!authReady) { router.replace('/login'); return; }
+      void fetchRealQuotations();
+      void fetchRealTemplates();
+    };
+    void init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Restore tab from URL or localStorage on first load (for F5 persistence)

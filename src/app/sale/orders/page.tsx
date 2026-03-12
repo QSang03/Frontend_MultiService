@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import {
   ShoppingCart, Search, Eye, Package, Clock, TrendingUp,
   CheckCircle2, X, RefreshCw,
@@ -62,6 +64,7 @@ function SkeletonRow() {
 }
 
 export default function SaleOrdersPage() {
+  const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -72,6 +75,8 @@ export default function SaleOrdersPage() {
   const fetchOrders = useCallback(async () => {
     setLoading(true);
     try {
+      const authReady = await ensureAuthReady();
+      if (!authReady) { router.replace('/login'); return; }
       const res = await fetch('/api/sale/tickets?page_size=50');
       if (!res.ok) throw new Error('Không thể tải dữ liệu');
       const data = await res.json();
@@ -91,7 +96,7 @@ export default function SaleOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, router]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 

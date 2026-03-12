@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import AddUserModal from '@/components/AddUserModal';
 import EditUserModal from '@/components/EditUserModal';
 import DepartmentTab from '@/components/dashboard/DepartmentTab';
@@ -44,6 +46,7 @@ const tabs = [
 
 export default function UserRBACPage() {
   const { addToast } = useToast();
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState('users');
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -61,6 +64,8 @@ export default function UserRBACPage() {
     setIsLoading(true);
     setError(null);
     try {
+      const authReady = await ensureAuthReady();
+      if (!authReady) { router.replace('/login'); return; }
       const res = await fetch('/api/admin/users?page_size=100');
       const data = await res.json();
       if (!res.ok) {
@@ -76,7 +81,7 @@ export default function UserRBACPage() {
 
   useEffect(() => {
     void loadUsers();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     try {

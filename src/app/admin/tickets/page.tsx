@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import { TopHeader } from '@/components/layout';
 import { 
   Search, AlertTriangle, MessageSquare, Clock, FileText, 
@@ -55,6 +57,7 @@ const mockMessages = [
 ];
 
 export default function TicketMonitorPage() {
+  const router = useRouter();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +80,8 @@ export default function TicketMonitorPage() {
     setLoading(true);
     setError(null);
     try {
+      const authReady = await ensureAuthReady();
+      if (!authReady) { router.replace('/login'); return; }
       let url = '/api/admin/tickets?page_size=100';
       if (statusFilter !== null) {
         url += `&status=${statusFilter}`;
@@ -96,7 +101,7 @@ export default function TicketMonitorPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, selectedTicket]);
+  }, [statusFilter, selectedTicket, router]);
 
   useEffect(() => {
     fetchTickets();

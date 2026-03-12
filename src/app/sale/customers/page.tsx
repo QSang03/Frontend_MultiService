@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import {
   AlertTriangle,
   Users,
@@ -288,6 +289,9 @@ export default function SaleCustomersPage() {
     const loadCrmLists = async () => {
       try {
         if (!mounted) return;
+
+        const authReady = await ensureAuthReady();
+        if (!authReady) { router.replace('/login'); return; }
 
         await Promise.all([fetchLeadPage('', false), fetchCustomerPage('', false)]);
       } catch {

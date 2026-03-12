@@ -2,6 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import {
   CheckCircle2,
   CircleAlert,
@@ -367,29 +368,6 @@ function CommissionsPageContent() {
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false });
   }, [pathname, router, searchParams]);
 
-  const ensureAuthReady = useCallback(async () => {
-    const meResponse = await fetch('/api/auth/me', {
-      cache: 'no-store',
-      credentials: 'include',
-    });
-
-    if (meResponse.ok) {
-      return true;
-    }
-
-    if (meResponse.status !== 401) {
-      return false;
-    }
-
-    const refreshResponse = await fetch('/api/auth/refresh', {
-      method: 'POST',
-      cache: 'no-store',
-      credentials: 'include',
-    });
-
-    return refreshResponse.ok;
-  }, []);
-
   const loadData = useCallback(async (silent = false) => {
     if (silent) {
       setIsRefreshing(true);
@@ -476,7 +454,7 @@ function CommissionsPageContent() {
       setIsRefreshing(false);
       setIsFilterRefreshing(false);
     }
-  }, [ensureAuthReady, router]);
+  }, [router]);
 
   useEffect(() => {
     void loadData();

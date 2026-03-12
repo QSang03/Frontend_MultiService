@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, memo, type ChangeEvent, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import { 
   Search, Plus, MoreVertical, Paperclip, Send, ChevronDown, Volume2, VolumeX,
   Clock, CheckCircle2, Calculator, FileText, SendHorizontal, Eye, Activity, AlertTriangle, Loader2
@@ -665,6 +666,8 @@ export default function SupportTrackingPage() {
       setLoadingMoreTickets(true);
     } else {
       setLoadingTickets(true);
+      const authReady = await ensureAuthReady();
+      if (!authReady) { router.replace('/login'); return; }
     }
 
     try {
