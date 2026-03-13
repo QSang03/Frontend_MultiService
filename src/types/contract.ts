@@ -52,6 +52,7 @@ export interface Contract {
   lineItems: LineItem[];
   signatureUrl?: string;
   pdfUrl?: string;
+  revisedFileId?: string;
   signedAt?: string;
   createdAt: string;
   updatedAt: string;

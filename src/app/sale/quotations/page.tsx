@@ -2056,7 +2056,8 @@ export default function SaleQuotationsPage() {
         onUploadRevised={async (c, fileType, fileId) => {
           setContractModalLoading(true);
           try {
-            await uploadRevisedContract(c.id, fileType, fileId);
+            const updated = await uploadRevisedContract(c.id, fileType, fileId);
+            if (updated) setSelectedContract(updated);
             setContractRefreshKey(k => k + 1);
           } finally { setContractModalLoading(false); }
         }}

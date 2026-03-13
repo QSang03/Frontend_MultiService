@@ -62,6 +62,20 @@ const normalizeContract = (raw: Contract): Contract => {
     createdAt: toIsoString(raw.createdAt) || String(raw.createdAt ?? ''),
     updatedAt: toIsoString(raw.updatedAt) || String(raw.updatedAt ?? ''),
     signedAt: raw.signedAt ? toIsoString(raw.signedAt) || String(raw.signedAt) : undefined,
+    signatureUrl: rawRecord.customerSignatureUrl != null
+      ? String(rawRecord.customerSignatureUrl)
+      : rawRecord.customer_signature_url != null
+        ? String(rawRecord.customer_signature_url)
+        : raw.signatureUrl,
+    revisedFileId: rawRecord.pdfFileUrl != null
+      ? String(rawRecord.pdfFileUrl)
+      : rawRecord.pdf_file_url != null
+        ? String(rawRecord.pdf_file_url)
+        : rawRecord.revisedFileId != null
+          ? String(rawRecord.revisedFileId)
+          : rawRecord.revised_file_id != null
+            ? String(rawRecord.revised_file_id)
+            : raw.revisedFileId,
     lineItems,
   };
 };
