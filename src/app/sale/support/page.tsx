@@ -314,6 +314,8 @@ export default function SupportTrackingPage() {
   const [chatNextPageToken, setChatNextPageToken] = useState('');
   const [loadingChat, setLoadingChat] = useState(false);
   const [loadingMoreChat, setLoadingMoreChat] = useState(false);
+  const [chatConnected, setChatConnected] = useState(false);
+  const chatEverConnectedRef = useRef(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [attachmentUrlByFileId, setAttachmentUrlByFileId] = useState<Record<string, string>>({});
@@ -1111,10 +1113,16 @@ export default function SupportTrackingPage() {
       chatEventSourceRef.current = null;
     }
 
-    if (!chatRoomId) return;
+    if (!chatRoomId) { setChatConnected(false); chatEverConnectedRef.current = false; return; }
 
     const eventSource = new EventSource(`/api/sale/chat/stream?room_id=${encodeURIComponent(chatRoomId)}`);
     chatEventSourceRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      setChatConnected(true);
+      chatEverConnectedRef.current = true;
+    };
+    eventSource.onerror = () => setChatConnected(false);
 
     const onMessage = (event: MessageEvent<string>) => {
       try {
@@ -1311,7 +1319,10 @@ export default function SupportTrackingPage() {
       }
 
       const mapped = mapChatMessageToUi(json.message as Record<string, unknown>);
-      setChatMessages((prev) => mergeChatMessages(prev, [{ ...mapped, isMe: true }]));
+      setChatMessages((prev) => {
+        if (prev.some((item) => item.id === mapped.id)) return prev;
+        return [{ ...mapped, isMe: true }, ...prev];
+      });
       addToast(isImage ? 'Đã gửi ảnh' : 'Đã gửi tệp', { type: 'success' });
     } catch {
       setFlowMessage('Lỗi kết nối khi gửi tệp đính kèm.');
@@ -2089,6 +2100,12 @@ export default function SupportTrackingPage() {
 
             {/* Chat Area */}
             <div className="relative flex-1 min-h-0 bg-white">
+            {chatRoomId && chatEverConnectedRef.current && !chatConnected && (
+              <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-center gap-2 bg-amber-50 border-b border-amber-200 py-1.5 px-3 text-xs text-amber-700">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Đang kết nối lại...
+              </div>
+            )}
             <div
               ref={chatScrollRef}
               onScroll={handleChatScroll}
@@ -2103,8 +2120,22 @@ export default function SupportTrackingPage() {
                   <div className="text-sm text-gray-500">Chưa có tin nhắn trong room này.</div>
                 ) : (
                   <>
-                    <div className="flex justify-center py-2 text-xs text-gray-400">
-                      {loadingMoreChat ? 'Loading older messages...' : chatNextPageToken ? 'Scroll up to load older messages' : 'No more messages'}
+                    <div className="flex justify-center py-2">
+                      {loadingMoreChat ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-gray-400">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Đang tải tin nhắn cũ hơn...
+                        </span>
+                      ) : chatNextPageToken ? (
+                        <button
+                          onClick={() => void handleLoadMoreChat()}
+                          className="text-xs text-blue-600 hover:text-blue-700 font-medium px-3 py-1 rounded-full border border-blue-200 hover:bg-blue-50 transition-colors"
+                        >
+                          Tải thêm tin nhắn cũ hơn
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400">Đã hiển thị toàn bộ hội thoại</span>
+                      )}
                     </div>
                     {processedMessages.map((pm) => (
                       <ChatMessageItem

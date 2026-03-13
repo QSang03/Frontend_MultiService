@@ -188,8 +188,59 @@ export default function SaleOrdersPage() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3 animate-pulse">
+              <div className="h-4 bg-gray-100 rounded w-1/3" />
+              <div className="h-3 bg-gray-100 rounded w-2/3" />
+              <div className="h-3 bg-gray-100 rounded w-1/2" />
+            </div>
+          ))
+        ) : filtered.length === 0 ? (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-16 flex flex-col items-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center">
+              <ShoppingCart className="w-7 h-7 text-gray-300" />
+            </div>
+            <p className="text-gray-600 font-medium text-sm">
+              {search || statusFilter !== 'all' ? 'Không tìm thấy đơn hàng phù hợp' : 'Chưa có đơn hàng nào'}
+            </p>
+            <p className="text-gray-400 text-xs text-center px-6">
+              {search || statusFilter !== 'all' ? 'Thử thay đổi bộ lọc hoặc từ khóa' : 'Đơn hàng sẽ xuất hiện khi khách hàng tạo yêu cầu dịch vụ'}
+            </p>
+          </div>
+        ) : (
+          filtered.map((order) => (
+            <div key={order.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-mono text-xs text-gray-500 truncate">{order.id}</p>
+                  <p className="font-semibold text-gray-800 mt-0.5 truncate">{order.service}</p>
+                  <p className="text-xs text-gray-500 mt-0.5 truncate">{order.customer}</p>
+                </div>
+                <button
+                  onClick={() => setSelectedOrder(order)}
+                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+                  aria-label={`Xem chi tiết đơn ${order.id}`}
+                >
+                  <Eye className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+              <div className="flex items-center justify-between mt-3">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${statusConfig[order.status].color}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${statusConfig[order.status].dot}`} />
+                  {statusConfig[order.status].label}
+                </span>
+                <span className="text-xs text-gray-400">{order.createdAt}</span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

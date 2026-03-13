@@ -35,8 +35,17 @@ export default function PayoutModal({
 }: PayoutModalProps) {
   if (!open) return null;
 
-  const requestedAmount = Number(amount.replace(/[^\d.-]/g, ''));
-  const parsedRequestedAmount = Number.isFinite(requestedAmount) ? requestedAmount : 0;
+  // Strip VN thousand separators (dots) and currency symbols, then parse
+  const cleaned = amount.replace(/[₫\s]/g, '').replace(/\./g, '').replace(',', '.');
+  const parsedRequestedAmount = Number.isFinite(Number(cleaned)) ? Number(cleaned) : 0;
+  const isAmountInvalid = parsedRequestedAmount <= 0 || parsedRequestedAmount > maxAmount;
+  const amountError = parsedRequestedAmount < 0
+    ? 'Số tiền không được âm'
+    : parsedRequestedAmount > maxAmount
+    ? `Vượt quá số dư khả dụng (${formatCurrency(maxAmount)})`
+    : parsedRequestedAmount === 0 && amount.trim() !== ''
+    ? 'Số tiền không hợp lệ'
+    : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -81,8 +90,13 @@ export default function PayoutModal({
                 disabled={isLoading}
               />
               <p className="mt-1 text-xs text-gray-500">
-                Hệ thống sẽ gửi đúng chuỗi amount cho backend. Giá trị hiện tại: {formatCurrency(parsedRequestedAmount)}
+                {parsedRequestedAmount > 0
+                  ? <>Bạn đang yêu cầu rút <span className="font-medium text-gray-700">{formatCurrency(parsedRequestedAmount)}</span></>
+                  : 'Nhập số tiền muốn rút (VD: 1500000)'}
               </p>
+              {amountError && (
+                <p className="mt-1 text-xs text-red-600">{amountError}</p>
+              )}
             </div>
 
             <div>
@@ -123,7 +137,8 @@ export default function PayoutModal({
               variant="primary"
               onClick={onConfirm}
               isLoading={isLoading}
-              className="flex-1 bg-blue-600 hover:bg-blue-700"
+              disabled={isLoading || isAmountInvalid}
+              className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Xác nhận
             </Button>

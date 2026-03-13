@@ -285,6 +285,7 @@ export default function SaleQuotationsPage() {
     finalizeContract,
     uploadRevisedContract,
     getContractTimeline,
+    getContract,
   } = useContracts();
   const [showContractDetail, setShowContractDetail] = useState(false);
   const [showCancelContract, setShowCancelContract] = useState(false);
@@ -378,6 +379,13 @@ export default function SaleQuotationsPage() {
     };
     void init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-fetch contract status for all "Đã tạo HĐ" (status 6) quotations
+  useEffect(() => {
+    const contracted = realQuotations.filter(q => q.status === 6 && !contractStatusMap[q.id]);
+    if (contracted.length === 0) return;
+    contracted.forEach(q => { void handleGetContractStatus(q.id); });
+  }, [realQuotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Restore tab from URL or localStorage on first load (for F5 persistence)
   useEffect(() => {
@@ -851,6 +859,47 @@ export default function SaleQuotationsPage() {
     return { totalValue, totalProfit };
   }, [filteredRealQuotations]);
 
+  // Open create modal pre-filled with data from a rejected quotation
+  const openCreateModalFromQuotation = useCallback((q: RealQuotation) => {
+    // Pre-fill customer
+    setSelectedCustomerId(q.customerId);
+    setSelectedClient(q.customerName || q.customerId);
+
+    // Pre-fill ticket
+    setTicketId(q.ticketId || '');
+    setSelectedTicketTitle('');
+
+    // Pre-fill currency & tax
+    setQuotationCurrency(q.currency || 'VND');
+    setQuotationTaxAmount(q.taxAmount || '');
+
+    // Pre-fill line items from JSON
+    try {
+      type RawItem = { description?: string; quantity?: number | string; unit_price?: number | string };
+      const parsed = JSON.parse(q.items) as RawItem[];
+      const rows = parsed.map(it => ({
+        description: String(it.description ?? ''),
+        quantity: String(it.quantity ?? '1'),
+        unit_price: String(it.unit_price ?? ''),
+      }));
+      setQuotationItemRows(rows);
+      setQuotationTotalAmount(String(rows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
+    } catch {
+      setQuotationItemRows([]);
+      setQuotationTotalAmount('');
+    }
+
+    // Reset template & margin
+    setSelectedTemplateId('');
+    setMarginResult(null);
+
+    // Fetch tickets for the customer so the dropdown is ready
+    void fetchTickets(q.customerId);
+    void fetchCustomers();
+
+    setShowCreateModal(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSort = useCallback((field: SortField) => {
     if (sortField === field) {
       setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -1164,18 +1213,35 @@ export default function SaleQuotationsPage() {
                                     Xét duyệt
                                   </button>
                                 )}
-                                {/* GetQuoteContractStatus */}
-                                <button
-                                  onClick={() => void handleGetContractStatus(q.id)}
-                                  disabled={isLoadingStatus}
-                                  title="Kiểm tra trạng thái hợp đồng"
-                                  className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
-                                >
-                                  {isLoadingStatus ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
-                                  Contract
-                                </button>
-                                {/* ConvertToContract — only for approved / under review */}
-                                {(q.status === 4 || q.status === 3) && (
+                                {/* GetQuoteContractStatus — for accepted or contracted */}
+                                {(q.status === 4 || q.status === 6) && (
+                                  <button
+                                    onClick={() => void handleGetContractStatus(q.id)}
+                                    disabled={isLoadingStatus}
+                                    title="Kiểm tra trạng thái hợp đồng"
+                                    className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+                                  >
+                                    {isLoadingStatus ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
+                                    Contract
+                                  </button>
+                                )}
+                                {/* QuickView — for status 6: fetch + open contract immediately */}
+                                {q.status === 6 && contractStatusMap[q.id]?.contract_id && (
+                                  <button
+                                    onClick={async () => {
+                                      const contract = await getContract(contractStatusMap[q.id].contract_id);
+                                      if (contract) { setSelectedContract(contract); setShowContractDetail(true); }
+                                      else addToast('Không tải được chi tiết hợp đồng.', { type: 'error' });
+                                    }}
+                                    className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                                    title="Xem chi tiết hợp đồng"
+                                  >
+                                    <ScrollText className="w-3 h-3" />
+                                    Xem HĐ
+                                  </button>
+                                )}
+                                {/* ConvertToContract — only for accepted quotations */}
+                                {q.status === 4 && (
                                   <button
                                     onClick={() => {
                                       const custName = q.customerName || customerLookup[q.customerId] || '';
@@ -1190,15 +1256,45 @@ export default function SaleQuotationsPage() {
                                     Tạo HĐ
                                   </button>
                                 )}
+                                {/* New quotation — only for rejected */}
+                                {q.status === 5 && (
+                                  <button
+                                    onClick={() => openCreateModalFromQuotation(q)}
+                                    className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors"
+                                    title="Tạo báo giá mới từ báo giá này"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                    Tạo BG mới
+                                  </button>
+                                )}
                               </div>
                               {/* Inline contract status info */}
                               {contractInfo && (
                                 <div className="mt-1 text-[10px] text-gray-500 flex items-center gap-1">
                                   <span className={`inline-block w-1.5 h-1.5 rounded-full ${contractInfo.contract_id ? 'bg-emerald-500' : 'bg-gray-300'}`} />
-                                  {contractInfo.contract_id
-                                    ? <><span className="font-mono">{(contractInfo.contract_id || '').slice(0, 8)}{(contractInfo.contract_id?.length ?? 0) > 8 ? '…' : ''}</span> · <span className="text-blue-600">{contractInfo.contract_status}</span></>
-                                    : <span>Chưa có hợp đồng</span>
-                                  }
+                                  {contractInfo.contract_id ? (
+                                    <>
+                                      <button
+                                        onClick={async () => {
+                                          const contract = await getContract(contractInfo.contract_id);
+                                          if (contract) {
+                                            setSelectedContract(contract);
+                                            setShowContractDetail(true);
+                                          } else {
+                                            addToast('Không tải được chi tiết hợp đồng.', { type: 'error' });
+                                          }
+                                        }}
+                                        className="font-mono text-blue-600 hover:underline hover:text-blue-800 transition-colors"
+                                        title="Xem chi tiết hợp đồng"
+                                      >
+                                        {(contractInfo.contract_id || '').slice(0, 8)}{(contractInfo.contract_id?.length ?? 0) > 8 ? '…' : ''}
+                                      </button>
+                                      {' · '}
+                                      <span className="text-blue-600">{contractInfo.contract_status}</span>
+                                    </>
+                                  ) : (
+                                    <span>Chưa có hợp đồng</span>
+                                  )}
                                 </div>
                               )}
                             </td>

@@ -110,8 +110,9 @@ const PAYOUT_FILTERS: Array<{ label: string; value: PayoutFilter; status?: numbe
 ];
 
 function parseMoney(value?: string): number {
-  const normalized = String(value ?? '0').replace(/[^\d.-]/g, '');
-  const parsed = Number(normalized);
+  // vi-VN uses dots as thousand separators; strip currency symbol + spaces + dots, then parse
+  const cleaned = String(value ?? '0').replace(/[₫\s]/g, '').replace(/\./g, '').replace(',', '.');
+  const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -982,14 +983,20 @@ function CommissionsPageContent() {
         </div>
         <div className="rounded-[24px] border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">MTD Profit</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm text-gray-500">MTD Profit</span>
+              <InfoHint label="MTD Profit" description="Tổng lợi nhuận ròng từ các ticket/hợp đồng trong tháng hiện tại (Month-to-Date). Dùng làm cơ sở tính commission." />
+            </div>
             <BadgeDollarSign className="h-4 w-4 text-blue-600" />
           </div>
           <p className="mt-3 text-2xl font-bold text-gray-900">{statsLoading ? '...' : formatCurrency(parseMoney(stats?.mtdProfit))}</p>
         </div>
         <div className="rounded-[24px] border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Total Payout Requested</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm text-gray-500">Total Payout Requested</span>
+              <InfoHint label="Total Payout Requested" description="Tổng số tiền commission đã gửi yêu cầu rút (bao gồm cả pending, approved, rejected). Không phải số dư thực nhận." />
+            </div>
             <DollarSign className="h-4 w-4 text-indigo-600" />
           </div>
           <p className="mt-3 text-2xl font-bold text-gray-900">{payoutsLoading ? '...' : formatCurrency(totalPayoutRequested)}</p>
@@ -997,7 +1004,10 @@ function CommissionsPageContent() {
         </div>
         <div className="rounded-[24px] border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Current Tier</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm text-gray-500">Current Tier</span>
+              <InfoHint label="Current Tier" description="Tier hoa hồng hiện tại dựa trên tổng YTD Profit. Tier 1 (≥0đ): 10% · Tier 2 (≥50tr): 15% · Tier 3 (≥150tr): 20%." />
+            </div>
             <TrendingUp className="h-4 w-4 text-purple-600" />
           </div>
           <p className="mt-3 text-xl font-bold text-gray-900">{statsLoading ? '...' : normalizeTierLabel(stats?.currentTier)}</p>
