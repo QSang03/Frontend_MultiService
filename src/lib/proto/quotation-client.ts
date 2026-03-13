@@ -181,6 +181,21 @@ export async function protoDeleteQuotationTemplate(id: string): Promise<Quotatio
 
 // ─── Quotation Management ───────────────────────────────────────────────────
 
+export async function protoDeleteQuotation(id: string): Promise<QuotationResult> {
+  const mod = await loadQuotationModule();
+  if (!mod) return { success: false, error: 'PROTO_MODULE_NOT_AVAILABLE' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const { client, mod: m } = await createAuthenticatedClient();
+      const request = create(m.DeleteQuotationRequestSchema as unknown as DescMessage, { id });
+      return await (client as Record<string, RpcMethod>).deleteQuotation(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'DeleteQuotation failed' };
+  }
+}
+
 export async function protoListQuotations(params?: {
   orgId?: string;
   customerId?: string;
@@ -339,6 +354,35 @@ export async function protoConvertToContract(payload: {
     return { success: true, response };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'ConvertToContract failed' };
+  }
+}
+
+export async function protoUpdateQuotation(payload: {
+  id: string;
+  totalAmount?: string;
+  taxAmount?: string;
+  currency?: string;
+  items?: string;
+  note?: string;
+}): Promise<QuotationResult> {
+  const mod = await loadQuotationModule();
+  if (!mod) return { success: false, error: 'PROTO_MODULE_NOT_AVAILABLE' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const { client, mod: m } = await createAuthenticatedClient();
+      const request = create(m.UpdateQuotationRequestSchema as unknown as DescMessage, {
+        id: payload.id,
+        totalAmount: payload.totalAmount,
+        taxAmount: payload.taxAmount,
+        currency: payload.currency,
+        items: payload.items,
+        note: payload.note,
+      });
+      return await (client as Record<string, RpcMethod>).updateQuotation(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'UpdateQuotation failed' };
   }
 }
 

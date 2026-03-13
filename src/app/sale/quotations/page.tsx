@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
-import { FileText, Plus, Send, AlertCircle, X, Calculator, Loader2, AlertTriangle, CheckCircle2, TrendingUp, Search, BookOpen, GitBranch, RefreshCw, ArrowRightCircle, Link2, ChevronDown, ChevronUp, ChevronsUpDown, ChevronLeft, ChevronRight, Copy, Check, BarChart3, ScrollText, Mail, Phone } from 'lucide-react';
+import { FileText, Plus, Send, AlertCircle, X, Calculator, Loader2, AlertTriangle, CheckCircle2, TrendingUp, Search, BookOpen, GitBranch, RefreshCw, ArrowRightCircle, Link2, ChevronDown, ChevronUp, ChevronsUpDown, ChevronLeft, ChevronRight, Copy, Check, BarChart3, ScrollText, Mail, Phone, Pencil, Trash2 } from 'lucide-react';
 import { useToast } from '@/components/ui';
 import ContractsList from '@/components/contract/ContractsList';
 import ContractDetailModal from '@/components/contract/ContractDetailModal';
@@ -250,6 +250,17 @@ export default function SaleQuotationsPage() {
   const [newTemplateItemRows, setNewTemplateItemRows] = useState<QuotationItemRow[]>([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
 
+  // Edit/delete quotation (draft)
+  const [editingQuotation, setEditingQuotation] = useState<RealQuotation | null>(null);
+  const [deletingQuotationId, setDeletingQuotationId] = useState<string | null>(null);
+  const [savingDeleteQuotation, setSavingDeleteQuotation] = useState(false);
+
+  // Edit/delete template
+  const [editingTemplate, setEditingTemplate] = useState<RealTemplate | null>(null);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [savingDeleteTemplate, setSavingDeleteTemplate] = useState(false);
+  const [savingUpdateTemplate, setSavingUpdateTemplate] = useState(false);
+
   // UC-9: GetQuoteContractStatus
   const [contractStatusMap, setContractStatusMap] = useState<Record<string, ContractStatus>>({});
   const [loadingContractStatus, setLoadingContractStatus] = useState<Record<string, boolean>>({});
@@ -384,7 +395,7 @@ export default function SaleQuotationsPage() {
   useEffect(() => {
     const contracted = realQuotations.filter(q => q.status === 6 && !contractStatusMap[q.id]);
     if (contracted.length === 0) return;
-    contracted.forEach(q => { void handleGetContractStatus(q.id); });
+    contracted.forEach(q => { void handleGetContractStatus(q.id, true); });
   }, [realQuotations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Restore tab from URL or localStorage on first load (for F5 persistence)
@@ -522,16 +533,19 @@ export default function SaleQuotationsPage() {
   };
 
   // UC-9: Get Quote + Contract Status
-  const handleGetContractStatus = async (quotationId: string) => {
+  const handleGetContractStatus = async (quotationId: string, silent = false) => {
     setLoadingContractStatus(prev => ({ ...prev, [quotationId]: true }));
     try {
       const res = await fetch(`/api/sale/quotations/contract-status?quotation_id=${encodeURIComponent(quotationId)}`);
       const json = await res.json() as ContractStatus;
-      if (!res.ok) { addToast((json as { error?: string }).error ?? 'GetQuoteContractStatus thất bại.', { type: 'error' }); return; }
+      if (!res.ok) {
+        if (!silent) addToast((json as { error?: string }).error ?? 'GetQuoteContractStatus thất bại.', { type: 'error' });
+        return;
+      }
       setContractStatusMap(prev => ({ ...prev, [quotationId]: json }));
-      addToast(`Contract: ${json.contract_status || 'N/A'} | ID: ${json.contract_id || 'chưa có'}`, { type: 'info' });
+      if (!silent) addToast(`Contract: ${json.contract_status || 'N/A'} | ID: ${json.contract_id || 'chưa có'}`, { type: 'info' });
     } catch {
-      addToast('Lỗi kết nối khi lấy contract status.', { type: 'error' });
+      if (!silent) addToast('Lỗi kết nối khi lấy contract status.', { type: 'error' });
     } finally {
       setLoadingContractStatus(prev => ({ ...prev, [quotationId]: false }));
     }
@@ -612,6 +626,145 @@ export default function SaleQuotationsPage() {
     }
   };
 
+  // Edit draft quotation: pre-fill modal and set editing mode
+  const openEditQuotationModal = useCallback((q: RealQuotation) => {
+    setEditingQuotation(q);
+    setSelectedCustomerId(q.customerId);
+    setSelectedClient(q.customerName || q.customerId);
+    setTicketId(q.ticketId || '');
+    setSelectedTicketTitle('');
+    setQuotationCurrency(q.currency || 'VND');
+    setQuotationTaxAmount(q.taxAmount || '');
+    setQuotationNote(q.note || '');
+    try {
+      type RawItem = { description?: string; quantity?: number | string; unit_price?: number | string };
+      const parsed = JSON.parse(q.items) as RawItem[];
+      const rows = parsed.map(it => ({
+        description: String(it.description ?? ''),
+        quantity: String(it.quantity ?? '1'),
+        unit_price: String(it.unit_price ?? ''),
+      }));
+      setQuotationItemRows(rows);
+      setQuotationTotalAmount(String(rows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
+    } catch {
+      setQuotationItemRows([]);
+      setQuotationTotalAmount('');
+    }
+    setSelectedTemplateId('');
+    setMarginResult(null);
+    void fetchTickets(q.customerId);
+    void fetchCustomers();
+    setShowCreateModal(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Delete draft quotation (sets status to CANCELLED)
+  const handleDeleteQuotation = async (quotationId: string) => {
+    setSavingDeleteQuotation(true);
+    try {
+      const res = await fetch(`/api/sale/quotations?id=${encodeURIComponent(quotationId)}`, { method: 'DELETE' });
+      const json = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok) { addToast(json.error ?? 'Xóa báo giá thất bại.', { type: 'error' }); return; }
+      addToast('Đã xóa báo giá.', { type: 'success' });
+      setRealQuotations(prev => prev.filter(q => q.id !== quotationId));
+      setDeletingQuotationId(null);
+    } catch {
+      addToast('Lỗi kết nối khi xóa báo giá.', { type: 'error' });
+    } finally {
+      setSavingDeleteQuotation(false);
+    }
+  };
+
+  // Update draft quotation
+  const handleUpdateQuotation = async () => {
+    if (!editingQuotation) return;
+    setLoadingSubmitQuotation(true);
+    try {
+      const res = await fetch('/api/sale/quotations', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingQuotation.id,
+          total_amount: quotationTotalAmount || '0',
+          tax_amount: quotationTaxAmount || '0',
+          currency: quotationCurrency,
+          note: quotationNote || undefined,
+          items: JSON.stringify(quotationItemRows.map(r => ({
+            description: r.description,
+            quantity: r.quantity,
+            unit_price: r.unit_price,
+            total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
+            metadata: {},
+          }))),
+        }),
+      });
+      const json = await res.json() as { quotation?: Record<string, unknown>; error?: string };
+      if (!res.ok) { addToast(json.error ?? 'Cập nhật báo giá thất bại.', { type: 'error' }); return; }
+      if (json.quotation) {
+        const updated = normalizeQuotation(json.quotation);
+        setRealQuotations(prev => prev.map(q => q.id === updated.id ? updated : q));
+      }
+      addToast('Đã cập nhật báo giá!', { type: 'success' });
+      setShowCreateModal(false);
+      setEditingQuotation(null);
+    } catch {
+      addToast('Lỗi kết nối khi cập nhật báo giá.', { type: 'error' });
+    } finally {
+      setLoadingSubmitQuotation(false);
+    }
+  };
+
+  // Update template
+  const handleUpdateTemplate = async () => {
+    if (!editingTemplate) return;
+    setSavingUpdateTemplate(true);
+    try {
+      const res = await fetch('/api/sale/quotations/templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingTemplate.id,
+          name: newTemplateName || editingTemplate.name,
+          description: newTemplateDesc,
+          category: newTemplateCategory,
+          items: JSON.stringify(newTemplateItemRows.map(r => ({
+            description: r.description,
+            quantity: r.quantity,
+            unit_price: r.unit_price,
+            total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
+          }))),
+        }),
+      });
+      const json = await res.json() as { template?: RealTemplate; error?: string };
+      if (!res.ok) { addToast(json.error ?? 'Cập nhật template thất bại.', { type: 'error' }); return; }
+      addToast('Đã cập nhật template!', { type: 'success' });
+      setEditingTemplate(null);
+      setShowCreateTemplateForm(false);
+      setNewTemplateName(''); setNewTemplateDesc(''); setNewTemplateCategory(''); setNewTemplateItemRows([]);
+      void fetchRealTemplates();
+    } catch {
+      addToast('Lỗi kết nối khi cập nhật template.', { type: 'error' });
+    } finally {
+      setSavingUpdateTemplate(false);
+    }
+  };
+
+  // Delete template
+  const handleDeleteTemplate = async (templateId: string) => {
+    setSavingDeleteTemplate(true);
+    try {
+      const res = await fetch(`/api/sale/quotations/templates?id=${encodeURIComponent(templateId)}`, { method: 'DELETE' });
+      const json = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok) { addToast(json.error ?? 'Xóa template thất bại.', { type: 'error' }); return; }
+      addToast('Đã xóa template.', { type: 'success' });
+      setRealTemplates(prev => prev.filter(t => t.id !== templateId));
+      setDeletingTemplateId(null);
+    } catch {
+      addToast('Lỗi kết nối khi xóa template.', { type: 'error' });
+    } finally {
+      setSavingDeleteTemplate(false);
+    }
+  };
+
   const handleTemplateSelect = (template: Template) => {
     setQuotationItemRows(template.defaultItems.map(item => ({
       description: item.name,
@@ -625,6 +778,11 @@ export default function SaleQuotationsPage() {
   };
 
   const handleSubmitQuotation = async () => {
+    // If editing an existing draft, call update instead
+    if (editingQuotation) {
+      await handleUpdateQuotation();
+      return;
+    }
     if (!selectedCustomerId) {
       addToast('Vui lòng chọn Khách hàng trước khi tạo báo giá.', { type: 'error' });
       return;
@@ -731,7 +889,7 @@ export default function SaleQuotationsPage() {
 
   const handleConfirmCreditWarning = () => {
     setShowCreditWarning(false);
-    performQuotationSubmit();
+    void performQuotationSubmit();
   };
 
   const handleCancelCreditWarning = () => {
@@ -910,7 +1068,19 @@ export default function SaleQuotationsPage() {
   }, [sortField]);
 
   const handleCopyId = useCallback((id: string) => {
-    void navigator.clipboard.writeText(id);
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(id);
+    } else {
+      // Fallback for non-HTTPS (local IP)
+      const el = document.createElement('textarea');
+      el.value = id;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    }
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 1500);
   }, []);
@@ -1136,7 +1306,8 @@ export default function SaleQuotationsPage() {
                         : '—';
                       const isExpanded = expandedQuotationId === q.id;
                       let parsedItems: { description?: string; quantity?: string | number; unit_price?: string | number; total_price?: string | number }[] = [];
-                      try { parsedItems = JSON.parse(q.items || '[]'); } catch { /* noop */ }
+                      let itemsParseError = false;
+                      try { parsedItems = JSON.parse(q.items || '[]'); } catch { itemsParseError = true; }
                       const rowNumber = (currentPage - 1) * PAGE_SIZE + rowIdx + 1;
 
                       return (
@@ -1197,20 +1368,45 @@ export default function SaleQuotationsPage() {
                             </td>
                             <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center gap-1.5">
+                                {/* Edit — only for Draft */}
+                                {q.status === 1 && (
+                                  <button
+                                    onClick={() => openEditQuotationModal(q)}
+                                    title="Chỉnh sửa báo giá"
+                                    className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                    Sửa
+                                  </button>
+                                )}
+                                {/* Delete — only for Draft */}
+                                {q.status === 1 && (
+                                  <button
+                                    onClick={() => setDeletingQuotationId(q.id)}
+                                    title="Hủy báo giá này"
+                                    className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    Xóa
+                                  </button>
+                                )}
                                 {/* Submit for Review — only for Draft */}
                                 {q.status === 1 && (
                                   <button
-                                    onClick={() => setConfirmAction({
-                                      title: 'Xét duyệt báo giá',
-                                      message: `Bạn có chắc muốn chuyển báo giá "${(q.id || '').slice(0, 8)}…" sang trạng thái Đang xét duyệt?`,
-                                      onConfirm: () => { void handleSubmitForReview(q.id); setConfirmAction(null); },
-                                    })}
-                                    disabled={loadingUpdateStatus[q.id]}
+                                    onClick={() => {
+                                      if (loadingUpdateStatus[q.id]) return;
+                                      setConfirmAction({
+                                        title: 'Xét duyệt báo giá',
+                                        message: `Bạn có chắc muốn chuyển báo giá "${(q.id || '').slice(0, 8)}…" sang trạng thái Đang xét duyệt?`,
+                                        onConfirm: () => { void handleSubmitForReview(q.id); setConfirmAction(null); },
+                                      });
+                                    }}
+                                    disabled={!!loadingUpdateStatus[q.id]}
                                     title="Chuyển sang Đang xét duyệt"
-                                    className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 disabled:opacity-50 transition-colors"
+                                    className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                   >
                                     {loadingUpdateStatus[q.id] ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                                    Xét duyệt
+                                    {loadingUpdateStatus[q.id] ? 'Đang gửi...' : 'Xét duyệt'}
                                   </button>
                                 )}
                                 {/* GetQuoteContractStatus — for accepted or contracted */}
@@ -1218,11 +1414,11 @@ export default function SaleQuotationsPage() {
                                   <button
                                     onClick={() => void handleGetContractStatus(q.id)}
                                     disabled={isLoadingStatus}
-                                    title="Kiểm tra trạng thái hợp đồng"
+                                    title="Kiểm tra trạng thái hợp đồng liên kết"
                                     className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
                                   >
                                     {isLoadingStatus ? <Loader2 className="w-3 h-3 animate-spin" /> : <Link2 className="w-3 h-3" />}
-                                    Contract
+                                    Xem TT
                                   </button>
                                 )}
                                 {/* QuickView — for status 6: fetch + open contract immediately */}
@@ -1344,7 +1540,10 @@ export default function SaleQuotationsPage() {
                                   <div>
                                     <p className="text-xs font-semibold text-gray-700 mb-2">Chi tiết hạng mục ({parsedItems.length})</p>
                                     {parsedItems.length === 0 ? (
-                                      <p className="text-xs text-gray-400 italic">Không có hạng mục</p>
+                                        <div className="flex items-center gap-2 text-xs text-gray-400 italic bg-gray-50 rounded-lg px-3 py-2 border border-dashed border-gray-200">
+                                        <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 text-gray-300" />
+                                        {itemsParseError ? 'Không thể đọc dữ liệu hạng mục (định dạng không hợp lệ)' : 'Báo giá này chưa có hạng mục nào'}
+                                      </div>
                                     ) : (
                                       <div className="bg-white rounded-lg border border-gray-100 overflow-hidden">
                                         <table className="w-full text-xs">
@@ -1476,10 +1675,10 @@ export default function SaleQuotationsPage() {
               </button>
             </div>
 
-            {/* Create template form */}
+            {/* Create/Edit template form */}
             {showCreateTemplateForm && (
               <div className="mb-5 p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
-                <p className="text-xs font-semibold text-gray-700">Tạo template từ báo giá thành công</p>
+                <p className="text-xs font-semibold text-gray-700">{editingTemplate ? `Chỉnh sửa: ${editingTemplate.name}` : 'Tạo template mới'}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Tên template <span className="text-red-400">*</span></label>
@@ -1553,12 +1752,20 @@ export default function SaleQuotationsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button onClick={() => void handleCreateTemplate()} disabled={savingTemplate || !newTemplateName}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-                    {savingTemplate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                    Lưu template
-                  </button>
-                  <button onClick={() => setShowCreateTemplateForm(false)}
+                  {editingTemplate ? (
+                    <button onClick={() => void handleUpdateTemplate()} disabled={savingUpdateTemplate || !newTemplateName}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                      {savingUpdateTemplate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />}
+                      Cập nhật template
+                    </button>
+                  ) : (
+                    <button onClick={() => void handleCreateTemplate()} disabled={savingTemplate || !newTemplateName}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                      {savingTemplate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                      Lưu template
+                    </button>
+                  )}
+                  <button onClick={() => { setShowCreateTemplateForm(false); setEditingTemplate(null); setNewTemplateName(''); setNewTemplateDesc(''); setNewTemplateCategory(''); setNewTemplateItemRows([]); }}
                     className="px-4 py-2 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
                     Hủy
                   </button>
@@ -1630,6 +1837,35 @@ export default function SaleQuotationsPage() {
                         className="flex-1 text-center text-xs py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium transition-colors"
                       >
                         Dùng template này
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingTemplate(tmpl);
+                          setNewTemplateName(tmpl.name);
+                          setNewTemplateDesc(tmpl.description || '');
+                          setNewTemplateCategory(tmpl.category || '');
+                          try {
+                            type RawItem = { description?: string; name?: string; quantity?: string | number; unit_price?: string | number; price?: string | number };
+                            const items = JSON.parse(tmpl.items || '[]') as RawItem[];
+                            setNewTemplateItemRows(items.map(it => ({
+                              description: String(it.description ?? it.name ?? ''),
+                              quantity: String(it.quantity ?? '1'),
+                              unit_price: String(it.unit_price ?? it.price ?? ''),
+                            })));
+                          } catch { setNewTemplateItemRows([]); }
+                          setShowCreateTemplateForm(true);
+                        }}
+                        className="text-xs py-1.5 px-2.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                        title="Chỉnh sửa template"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => setDeletingTemplateId(tmpl.id)}
+                        className="text-xs py-1.5 px-2.5 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+                        title="Xóa template"
+                      >
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
                   </div>
@@ -1753,7 +1989,7 @@ export default function SaleQuotationsPage() {
       {showCreateModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowCreateModal(false); }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setShowCreateModal(false); setEditingQuotation(null); } }}
         >
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
@@ -1762,13 +1998,13 @@ export default function SaleQuotationsPage() {
                   <Calculator className="w-4 h-4 text-violet-600" />
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold text-gray-900">Tạo Báo Giá Mới</h2>
+                  <h2 className="text-sm font-bold text-gray-900">{editingQuotation ? 'Chỉnh Sửa Báo Giá' : 'Tạo Báo Giá Mới'}</h2>
                   <p className="text-xs text-gray-400">Điền thông tin, xây dựng hạng mục &amp; kiểm tra margin</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <span className="hidden sm:inline-flex text-[10px] text-gray-400 border border-gray-200 rounded px-1.5 py-0.5">ESC để đóng</span>
-                <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                <button onClick={() => { setShowCreateModal(false); setEditingQuotation(null); }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -2086,7 +2322,7 @@ export default function SaleQuotationsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setShowCreateModal(false)}
+                  onClick={() => { setShowCreateModal(false); setEditingQuotation(null); }}
                   className="px-4 py-2 text-sm font-medium rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
                 >
                   Hủy
@@ -2096,7 +2332,8 @@ export default function SaleQuotationsPage() {
                   disabled={loadingSubmitQuotation || !selectedCustomerId || !quotationTotalAmount}
                   className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-medium rounded-xl bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 transition-colors"
                 >
-                  {loadingSubmitQuotation ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />} Tạo Báo Giá
+                  {loadingSubmitQuotation ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  {editingQuotation ? 'Cập Nhật' : 'Tạo Báo Giá'}
                 </button>
               </div>
             </div>
@@ -2250,6 +2487,60 @@ export default function SaleQuotationsPage() {
               <button onClick={() => handleConfirmCreditWarning()}
                 className="flex-1 px-4 py-2 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors">
                 Tiếp tục tạo báo giá
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Quotation Confirm Dialog */}
+      {deletingQuotationId && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => setDeletingQuotationId(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 text-center">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-sm font-bold text-gray-900 mb-1">Hủy báo giá?</h3>
+              <p className="text-xs text-gray-500">Báo giá sẽ bị xóa vĩnh viễn và không thể khôi phục.</p>
+            </div>
+            <div className="px-5 pb-5 flex items-center gap-2">
+              <button onClick={() => setDeletingQuotationId(null)} disabled={savingDeleteQuotation}
+                className="flex-1 px-4 py-2 text-sm font-medium rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                Thoát
+              </button>
+              <button onClick={() => void handleDeleteQuotation(deletingQuotationId)} disabled={savingDeleteQuotation}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50">
+                {savingDeleteQuotation ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Xác nhận hủy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Template Confirm Dialog */}
+      {deletingTemplateId && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => setDeletingTemplateId(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 text-center">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
+                <Trash2 className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-sm font-bold text-gray-900 mb-1">Xóa template?</h3>
+              <p className="text-xs text-gray-500">Template sẽ bị xóa vĩnh viễn và không thể khôi phục.</p>
+            </div>
+            <div className="px-5 pb-5 flex items-center gap-2">
+              <button onClick={() => setDeletingTemplateId(null)} disabled={savingDeleteTemplate}
+                className="flex-1 px-4 py-2 text-sm font-medium rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50">
+                Thoát
+              </button>
+              <button onClick={() => void handleDeleteTemplate(deletingTemplateId)} disabled={savingDeleteTemplate}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 text-sm font-medium rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50">
+                {savingDeleteTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Xóa
               </button>
             </div>
           </div>

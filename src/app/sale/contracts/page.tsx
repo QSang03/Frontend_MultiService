@@ -949,9 +949,15 @@ function CommissionsPageContent() {
               disabled={statsLoading || availableBalance <= 0}
               isLoading={isPayoutSubmitting}
               className="border border-white/20 bg-white text-blue-800 hover:bg-blue-50"
-              title={availableBalance <= 0 ? 'Không có số dư khả dụng để yêu cầu payout' : 'Tạo yêu cầu rút commission'}
+              title={
+                statsLoading ? 'Đang tải dữ liệu...'
+                : debtBalance > 0 ? `Đang có công nợ ${formatCurrency(debtBalance)} — không thể rút`
+                : pendingBalance > 0 && availableBalance <= 0 ? `${formatCurrency(pendingBalance)} đang chờ đối soát, chưa khả dụng để rút`
+                : availableBalance <= 0 ? 'Chưa có commission khả dụng để yêu cầu rút'
+                : 'Tạo yêu cầu rút commission'
+              }
             >
-              Request Payout
+              Yêu cầu rút tiền
             </Button>
           </div>
         </div>

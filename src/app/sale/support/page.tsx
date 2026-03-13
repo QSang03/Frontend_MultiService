@@ -324,6 +324,7 @@ export default function SupportTrackingPage() {
   const [unreadNewCount, setUnreadNewCount] = useState(0);
   const [enableNewMessageSound, setEnableNewMessageSound] = useState(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const previousChatLengthRef = useRef(0);
@@ -1016,6 +1017,7 @@ export default function SupportTrackingPage() {
         return [{ ...mapped, isMe: true }, ...prev];
       });
       setMessageInput('');
+      if (textareaRef.current) { textareaRef.current.style.height = 'auto'; }
     } catch {
     } finally {
       setSendingMessage(false);
@@ -2193,30 +2195,50 @@ export default function SupportTrackingPage() {
                 className="hidden"
                 onChange={(event) => void handleSendAttachment(event)}
               />
-                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all shadow-sm">
+              {!chatRoomId && (
+                <p className="text-xs text-gray-400 text-center mb-2">
+                  Chọn một ticket để bắt đầu hội thoại
+                </p>
+              )}
+              <div className={`flex items-center gap-2 bg-white border rounded-full px-4 py-2 transition-all shadow-sm ${chatRoomId ? 'border-gray-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent' : 'border-gray-100 opacity-60'}`}>
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!chatRoomId || uploadingAttachment || sendingMessage}
-                  className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                  title={!chatRoomId ? 'Chọn ticket trước' : uploadingAttachment ? 'Đang tải file...' : 'Đính kèm file'}
+                  className="text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                        <Paperclip className="w-5 h-5" />
-                    </button>
-                    <textarea
-                      placeholder="Type message to coordinate..."
-                      className="flex-1 bg-transparent border-none focus:outline-none text-sm py-1 resize-none max-h-28"
-                      rows={1}
-                      value={messageInput}
-                      onChange={(e) => setMessageInput(e.target.value)}
-                      onKeyDown={handleMessageInputKeyDown}
-                    />
-                      <button
-                        onClick={() => void handleSendChatMessage()}
-                        disabled={!chatRoomId || !messageInput.trim() || sendingMessage || uploadingAttachment}
-                        className="text-blue-600 hover:text-blue-700 bg-blue-50 p-2 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Send className="w-4 h-4" />
-                    </button>
-                </div>
+                  <Paperclip className="w-5 h-5" />
+                </button>
+                <textarea
+                  ref={textareaRef}
+                  placeholder={chatRoomId ? 'Nhập tin nhắn...' : 'Chọn ticket để nhắn tin'}
+                  className="flex-1 bg-transparent border-none focus:outline-none text-sm py-1 resize-none disabled:cursor-not-allowed overflow-y-auto"
+                  style={{ maxHeight: '7rem' }}
+                  rows={1}
+                  value={messageInput}
+                  disabled={!chatRoomId}
+                  onChange={(e) => {
+                    setMessageInput(e.target.value);
+                    const el = e.target;
+                    el.style.height = 'auto';
+                    el.style.height = `${el.scrollHeight}px`;
+                  }}
+                  onKeyDown={handleMessageInputKeyDown}
+                />
+                {chatRoomId && messageInput.length > 0 && (
+                  <span className={`text-[10px] flex-shrink-0 tabular-nums ${messageInput.length >= 2000 ? 'text-red-500 font-semibold' : messageInput.length >= 500 ? 'text-amber-500' : 'text-gray-300'}`}>
+                    {messageInput.length}
+                  </span>
+                )}
+                <button
+                  onClick={() => void handleSendChatMessage()}
+                  disabled={!chatRoomId || !messageInput.trim() || sendingMessage || uploadingAttachment}
+                  title={!chatRoomId ? 'Chọn ticket trước' : !messageInput.trim() ? 'Nhập nội dung tin nhắn' : 'Gửi tin nhắn'}
+                  className="text-blue-600 hover:text-blue-700 bg-blue-50 p-2 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
             </div>
         </div>
       )}
