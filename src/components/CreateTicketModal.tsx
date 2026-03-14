@@ -108,6 +108,7 @@ export default function CreateTicketModal({ isOpen, onClose, onCreate, clientDat
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="e.g. Printer not connecting"
+              autoFocus
               className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
             />
           </div>

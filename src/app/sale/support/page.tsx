@@ -457,6 +457,11 @@ export default function SupportTrackingPage() {
     }
   };
 
+  // Returns true if a presigned S3 URL will expire within thresholdMs (proactive refresh)
+  const isPresignedUrlExpiringSoon = (url: string, thresholdMs = 5 * 60 * 1000): boolean => {
+    return isPresignedUrlExpired(url, thresholdMs);
+  };
+
   const parseAttachmentMeta = parseAttachmentMetaStatic;
 
   const mergeChatMessages = useCallback((current: ChatUiMessage[], incoming: ChatUiMessage[]): ChatUiMessage[] => {
@@ -1141,9 +1146,9 @@ export default function SupportTrackingPage() {
     };
   }, [chatRoomId, chatRoomOrgId, chatRoomType, chatRoomTicketId, mapChatMessageToUi]);
 
-  // Ticker: every 60s nudge the URL-resolution effect so expired presigned URLs get refreshed
+  // Ticker: every 2 min nudge the URL-resolution effect so soon-to-expire presigned URLs get refreshed proactively
   useEffect(() => {
-    const interval = setInterval(() => setUrlRefreshTick((t) => t + 1), 60_000);
+    const interval = setInterval(() => setUrlRefreshTick((t) => t + 1), 120_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1157,20 +1162,20 @@ export default function SupportTrackingPage() {
 
       if (fileId && !urlInMeta) {
         const cached = currentUrls[fileId];
-        if (!cached || isPresignedUrlExpired(cached)) fileIds.add(fileId);
+        if (!cached || isPresignedUrlExpiringSoon(cached)) fileIds.add(fileId);
       }
 
-      if (urlInMeta && isPresignedUrlExpired(urlInMeta)) {
+      if (urlInMeta && isPresignedUrlExpiringSoon(urlInMeta)) {
         const fid = extractFileIdFromS3Url(urlInMeta);
         if (fid) {
           const cached = currentUrls[fid];
-          if (!cached || isPresignedUrlExpired(cached)) fileIds.add(fid);
+          if (!cached || isPresignedUrlExpiringSoon(cached)) fileIds.add(fid);
         }
       }
     });
 
     Object.entries(currentUrls).forEach(([fid, url]) => {
-      if (isPresignedUrlExpired(url)) fileIds.add(fid);
+      if (isPresignedUrlExpiringSoon(url)) fileIds.add(fid);
     });
 
     const toResolve = Array.from(fileIds).filter((id) => !resolvingFileIdsRef.current.has(id));
@@ -1356,8 +1361,11 @@ export default function SupportTrackingPage() {
   const hasEffectiveContextId = !!effectiveContextId;
 
   const handleStatusChange = async (ticketId: string, status: Ticket['status']) => {
-    setTickets((prev) => prev.map((ticket) => (ticket.id === ticketId ? { ...ticket, status } : ticket)));
-    setSelectedTicket((prev) => (prev && prev.id === ticketId ? { ...prev, status } : prev));
+    // Save previous state for rollback on failure
+    let previousTickets: typeof tickets | null = null;
+    let previousSelectedTicket: typeof selectedTicket | null = null;
+    setTickets((prev) => { previousTickets = prev; return prev.map((ticket) => (ticket.id === ticketId ? { ...ticket, status } : ticket)); });
+    setSelectedTicket((prev) => { previousSelectedTicket = prev; return prev && prev.id === ticketId ? { ...prev, status } : prev; });
 
     try {
       const response = await fetch('/api/sale/tickets', {
@@ -1371,12 +1379,20 @@ export default function SupportTrackingPage() {
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        setFlowMessage(err?.error || 'Không thể đồng bộ trạng thái ticket với server.');
+        const msg = err?.error || 'Không thể đồng bộ trạng thái ticket với server.';
+        if (previousTickets !== null) setTickets(previousTickets);
+        if (previousSelectedTicket !== undefined) setSelectedTicket(previousSelectedTicket);
+        setFlowMessage(msg);
+        addToast(msg, { type: 'error' });
       } else {
         setFlowMessage(`Đã cập nhật trạng thái ticket -> ${status}.`);
       }
     } catch {
-      setFlowMessage('Lỗi kết nối khi cập nhật trạng thái ticket.');
+      const msg = 'Lỗi kết nối khi cập nhật trạng thái ticket.';
+      if (previousTickets !== null) setTickets(previousTickets);
+      if (previousSelectedTicket !== undefined) setSelectedTicket(previousSelectedTicket);
+      setFlowMessage(msg);
+      addToast(msg, { type: 'error' });
     }
   };
 

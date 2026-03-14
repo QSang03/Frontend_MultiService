@@ -22,6 +22,7 @@ import {
   Sparkles,
   TrendingUp,
   Wallet,
+  X,
 } from 'lucide-react';
 import { Button, ConfirmModal, useToast } from '@/components/ui';
 import { cn } from '@/utils';
@@ -368,8 +369,9 @@ function CommissionsPageContent() {
       doFallback();
     }
     setCopiedId(text);
+    addToast('Đã sao chép!', { type: 'success' });
     setTimeout(() => setCopiedId((prev) => (prev === text ? '' : prev)), 1500);
-  }, []);
+  }, [addToast]);
 
 
   const updateSearchParams = useCallback((updates: Record<string, string | string[] | null>) => {
@@ -1093,7 +1095,7 @@ function CommissionsPageContent() {
               </div>
               <div className="text-sm text-gray-500">Hiển thị <span className="font-semibold text-gray-900">{filteredPayouts.length}</span> / {payouts.length} đã tải • tổng backend {payoutTotalCount}</div>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
               {PAYOUT_FILTERS.map((item) => {
                 const active = item.value === 'ALL' ? selectedPayoutStatuses.length === 0 : selectedPayoutStatuses.includes(item.value as PayoutStatusValue);
                 return (
@@ -1103,29 +1105,29 @@ function CommissionsPageContent() {
                     aria-pressed={active}
                     onClick={() => handleTogglePayoutFilter(item.value)}
                     className={cn(
-                      'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all',
-                      active ? 'border-slate-900 bg-slate-900 text-white shadow-sm' : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300 hover:bg-white'
+                      'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-150',
+                      active ? 'border-slate-900 bg-slate-900 text-white shadow-sm scale-[1.03]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400 hover:bg-gray-50'
                     )}
                   >
-                    {active && isFilterRefreshing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+                    {active && isFilterRefreshing ? <LoaderCircle className="h-3 w-3 animate-spin" /> : null}
                     {item.label}
                   </button>
                 );
               })}
+              {selectedPayoutStatuses.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateSearchParams({ payoutStatus: null });
+                    setSelectedPayoutStatuses([]);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-600 transition-all duration-150 hover:border-red-300 hover:bg-red-100"
+                >
+                  <X className="h-3 w-3" />
+                  Xóa bộ lọc
+                </button>
+              )}
             </div>
-            {(selectedCommissionStatuses.length > 0 || selectedPayoutStatuses.length > 0) && (
-              <button
-                type="button"
-                onClick={() => {
-                  updateSearchParams({ commissionStatus: null, payoutStatus: null });
-                  setSelectedCommissionStatuses([]);
-                  setSelectedPayoutStatuses([]);
-                }}
-                className="mt-2 text-xs text-red-500 hover:text-red-700 font-medium"
-              >
-                Xóa bộ lọc
-              </button>
-            )}
           </div>
           {payoutSectionError ? (
             <div className="mx-6 mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -1173,6 +1175,7 @@ function CommissionsPageContent() {
                           <button
                             type="button"
                             title="Sao chép ID"
+                            aria-label="Sao chép ID"
                             onClick={(e) => { e.stopPropagation(); copyToClipboard(item.id); }}
                             className="text-gray-400 hover:text-gray-600 flex-shrink-0"
                           >
@@ -1286,7 +1289,7 @@ function CommissionsPageContent() {
               </button>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             {STATUS_FILTERS.map((item) => {
               const active = item.value === 'ALL' ? selectedCommissionStatuses.length === 0 : selectedCommissionStatuses.includes(item.value as CommissionStatusValue);
               return (
@@ -1296,29 +1299,29 @@ function CommissionsPageContent() {
                   aria-pressed={active}
                   onClick={() => handleToggleCommissionFilter(item.value)}
                   className={cn(
-                    'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all',
-                    active ? 'border-blue-600 bg-blue-600 text-white shadow-sm' : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300 hover:bg-white'
+                    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-150',
+                    active ? 'border-blue-600 bg-blue-600 text-white shadow-sm scale-[1.03]' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400 hover:bg-gray-50'
                   )}
                 >
-                  {active && isFilterRefreshing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {active && isFilterRefreshing ? <LoaderCircle className="h-3 w-3 animate-spin" /> : null}
                   {item.label}
                 </button>
               );
             })}
+            {selectedCommissionStatuses.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  updateSearchParams({ commissionStatus: null });
+                  setSelectedCommissionStatuses([]);
+                }}
+                className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-600 transition-all duration-150 hover:border-red-300 hover:bg-red-100"
+              >
+                <X className="h-3 w-3" />
+                Xóa bộ lọc
+              </button>
+            )}
           </div>
-          {(selectedCommissionStatuses.length > 0 || selectedPayoutStatuses.length > 0) && (
-            <button
-              type="button"
-              onClick={() => {
-                updateSearchParams({ commissionStatus: null, payoutStatus: null });
-                setSelectedCommissionStatuses([]);
-                setSelectedPayoutStatuses([]);
-              }}
-              className="mt-2 text-xs text-red-500 hover:text-red-700 font-medium"
-            >
-              Xóa bộ lọc
-            </button>
-          )}
           {commissionError ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{commissionError}</div> : null}
         </div>
         <div className="hidden md:block">
@@ -1359,6 +1362,7 @@ function CommissionsPageContent() {
                           <button
                             type="button"
                             title="Sao chép ID"
+                            aria-label="Sao chép ID"
                             onClick={(e) => { e.stopPropagation(); copyToClipboard(item.id); }}
                             className="text-gray-400 hover:text-gray-600 flex-shrink-0"
                           >

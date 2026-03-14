@@ -111,6 +111,7 @@ export default function SaleProfilePage() {
                     className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm bg-gray-50 text-gray-400 cursor-not-allowed"
                   />
                 </div>
+                <p className="text-xs text-gray-400 mt-1">Phòng ban được quản lý bởi admin.</p>
               </div>
             </div>
             <div className="flex justify-end">
@@ -133,37 +134,29 @@ export default function SaleProfilePage() {
           Bảo mật
         </h2>
         <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg opacity-60">
             <div className="flex items-center gap-3">
-              <Key className="w-5 h-5 text-gray-500" />
+              <Key className="w-5 h-5 text-gray-400" />
               <div>
-                <p className="text-sm font-medium text-gray-900">Đổi mật khẩu</p>
-                <p className="text-xs text-gray-500">Cập nhật mật khẩu đăng nhập</p>
+                <p className="text-sm font-medium text-gray-700">Đổi mật khẩu</p>
+                <p className="text-xs text-gray-400">Cập nhật mật khẩu đăng nhập</p>
               </div>
             </div>
-            <button
-              disabled
-              title="Tính năng đổi mật khẩu sẽ sớm ra mắt"
-              className="text-sm text-gray-400 font-medium cursor-not-allowed"
-            >
-              Thay đổi
-            </button>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-500 cursor-not-allowed select-none">
+              Sắp ra mắt
+            </span>
           </div>
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg opacity-60">
             <div className="flex items-center gap-3">
-              <Shield className="w-5 h-5 text-gray-500" />
+              <Shield className="w-5 h-5 text-gray-400" />
               <div>
-                <p className="text-sm font-medium text-gray-900">Xác thực 2 yếu tố (MFA)</p>
-                <p className="text-xs text-gray-500">Bảo vệ tài khoản bằng OTP</p>
+                <p className="text-sm font-medium text-gray-700">Xác thực 2 yếu tố (MFA)</p>
+                <p className="text-xs text-gray-400">Bảo vệ tài khoản bằng OTP</p>
               </div>
             </div>
-            <button
-              disabled
-              title="Tính năng cài đặt MFA sẽ sớm ra mắt"
-              className="text-sm text-gray-400 font-medium cursor-not-allowed"
-            >
-              Cài đặt
-            </button>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-200 text-gray-500 cursor-not-allowed select-none">
+              Sắp ra mắt
+            </span>
           </div>
         </div>
       </div>

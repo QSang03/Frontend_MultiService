@@ -248,6 +248,7 @@ export default function SaleQuotationsPage() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [showCreateTemplateForm, setShowCreateTemplateForm] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
+  const [templateNameTouched, setTemplateNameTouched] = useState(false);
   const [newTemplateDesc, setNewTemplateDesc] = useState('');
   const [newTemplateCategory, setNewTemplateCategory] = useState('');
   const [newTemplateItemRows, setNewTemplateItemRows] = useState<QuotationItemRow[]>([]);
@@ -1816,8 +1817,11 @@ export default function SaleQuotationsPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Tên template <span className="text-red-400">*</span></label>
-                    <input value={newTemplateName} onChange={e => setNewTemplateName(e.target.value)}
-                      placeholder="VD: Gói Bảo trì Server" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                    <input value={newTemplateName} onChange={e => { setNewTemplateName(e.target.value); setTemplateNameTouched(true); }}
+                      placeholder="VD: Gói Bảo trì Server" className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 ${templateNameTouched && newTemplateName.trim().length < 2 ? 'border-red-400' : 'border-gray-200'}`} />
+                    {templateNameTouched && newTemplateName.trim().length < 2 && (
+                      <p className="text-xs text-red-500 mt-1">{newTemplateName.trim().length === 0 ? 'Tên template không được để trống.' : 'Tên template phải có ít nhất 2 ký tự.'}</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">Danh mục</label>
@@ -1890,19 +1894,21 @@ export default function SaleQuotationsPage() {
                 </div>
                 <div className="flex gap-2">
                   {editingTemplate ? (
-                    <button onClick={() => void handleUpdateTemplate()} disabled={savingUpdateTemplate || !newTemplateName}
+                    <button onClick={() => void handleUpdateTemplate()} disabled={savingUpdateTemplate || newTemplateName.trim().length < 2}
+                      title={newTemplateName.trim().length < 2 ? 'Vui lòng nhập tên mẫu' : undefined}
                       className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
                       {savingUpdateTemplate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Pencil className="w-3.5 h-3.5" />}
                       Cập nhật template
                     </button>
                   ) : (
-                    <button onClick={() => void handleCreateTemplate()} disabled={savingTemplate || !newTemplateName}
+                    <button onClick={() => void handleCreateTemplate()} disabled={savingTemplate || newTemplateName.trim().length < 2}
+                      title={newTemplateName.trim().length < 2 ? 'Vui lòng nhập tên mẫu' : undefined}
                       className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
                       {savingTemplate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                       Lưu template
                     </button>
                   )}
-                  <button onClick={() => { setShowCreateTemplateForm(false); setEditingTemplate(null); setNewTemplateName(''); setNewTemplateDesc(''); setNewTemplateCategory(''); setNewTemplateItemRows([]); }}
+                  <button onClick={() => { setShowCreateTemplateForm(false); setEditingTemplate(null); setNewTemplateName(''); setTemplateNameTouched(false); setNewTemplateDesc(''); setNewTemplateCategory(''); setNewTemplateItemRows([]); }}
                     className="px-4 py-2 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors">
                     Hủy
                   </button>
@@ -2063,18 +2069,24 @@ export default function SaleQuotationsPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Ngày bắt đầu <span className="text-red-400">*</span></label>
                   <input type="date" value={convertForm.start_date} onChange={e => setConvertForm(f => ({ ...f, start_date: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                    className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 ${convertForm.start_date === '' && convertForm.end_date !== '' ? 'border-red-400' : 'border-gray-200'}`} />
+                  {convertForm.start_date === '' && convertForm.end_date !== '' && (
+                    <p className="text-xs text-red-500 mt-1">Vui lòng chọn ngày bắt đầu.</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Ngày kết thúc <span className="text-red-400">*</span></label>
                   <input type="date" value={convertForm.end_date} onChange={e => setConvertForm(f => ({ ...f, end_date: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                    className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 ${convertForm.end_date && convertForm.start_date && convertForm.end_date <= convertForm.start_date ? 'border-red-400' : 'border-gray-200'}`} />
+                  {convertForm.end_date && convertForm.start_date && convertForm.end_date <= convertForm.start_date && (
+                    <p className="text-xs text-red-500 mt-1">Ngày kết thúc phải sau ngày bắt đầu.</p>
+                  )}
                 </div>
               </div>
             </div>
             <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
               <button onClick={() => setConvertModalQuotation(null)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Hủy</button>
-              <button onClick={() => void handleConvertToContract()} disabled={loadingConvert || !convertForm.title || !convertForm.start_date || !convertForm.end_date}
+              <button onClick={() => void handleConvertToContract()} disabled={loadingConvert || !convertForm.title || !convertForm.start_date || !convertForm.end_date || convertForm.end_date <= convertForm.start_date}
                 className="flex items-center gap-2 px-5 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors">
                 {loadingConvert ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightCircle className="w-4 h-4" />}
                 Tạo Hợp Đồng

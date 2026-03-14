@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import {
   ShoppingCart, Search, Eye, Package, Clock, TrendingUp,
-  CheckCircle2, X, RefreshCw,
+  CheckCircle2, X, RefreshCw, ChevronUp, ChevronDown,
 } from 'lucide-react';
 import { useToast } from '@/components/ui';
 
@@ -15,8 +15,16 @@ interface Order {
   service: string;
   status: 'pending' | 'confirmed' | 'processing' | 'completed' | 'cancelled';
   createdAt: string;
+  createdAtRaw: number;
   priority?: string;
 }
+
+type SortField = 'id' | 'customer' | 'service' | 'status' | 'createdAt';
+type SortDir = 'asc' | 'desc';
+
+const STATUS_ORDER: Record<Order['status'], number> = {
+  pending: 0, confirmed: 1, processing: 2, completed: 3, cancelled: 4,
+};
 
 const STATUS_MAP: Record<number, Order['status']> = {
   1: 'pending',     // DRAFT
@@ -70,6 +78,9 @@ export default function SaleOrdersPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [drawerMounting, setDrawerMounting] = useState(false);
+  const [sortField, setSortField] = useState<SortField>('createdAt');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const { addToast } = useToast();
 
   const fetchOrders = useCallback(async () => {
@@ -88,6 +99,7 @@ export default function SaleOrdersPage() {
         createdAt: t.createdAt
           ? new Date(String(t.createdAt)).toLocaleDateString('vi-VN')
           : '—',
+        createdAtRaw: t.createdAt ? new Date(String(t.createdAt)).getTime() : 0,
         priority: t.priority as string | undefined,
       }));
       setOrders(mapped);
@@ -107,7 +119,25 @@ export default function SaleOrdersPage() {
       if (!o.id.toLowerCase().includes(q) && !o.customer.toLowerCase().includes(q) && !o.service.toLowerCase().includes(q)) return false;
     }
     return true;
+  }).sort((a, b) => {
+    let cmp = 0;
+    if (sortField === 'createdAt') cmp = a.createdAtRaw - b.createdAtRaw;
+    else if (sortField === 'status') cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+    else cmp = a[sortField].localeCompare(b[sortField], 'vi');
+    return sortDir === 'asc' ? cmp : -cmp;
   });
+
+  function toggleSort(field: SortField) {
+    if (sortField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortField(field); setSortDir('asc'); }
+  }
+
+  function SortIcon({ field }: { field: SortField }) {
+    if (sortField !== field) return <ChevronUp className="w-3 h-3 text-gray-300 ml-1 inline" />;
+    return sortDir === 'asc'
+      ? <ChevronUp className="w-3 h-3 text-emerald-500 ml-1 inline" />
+      : <ChevronDown className="w-3 h-3 text-emerald-500 ml-1 inline" />;
+  }
 
   const counts = {
     total:      orders.length,
@@ -207,7 +237,7 @@ export default function SaleOrdersPage() {
               {search || statusFilter !== 'all' ? 'Không tìm thấy đơn hàng phù hợp' : 'Chưa có đơn hàng nào'}
             </p>
             <p className="text-gray-400 text-xs text-center px-6">
-              {search || statusFilter !== 'all' ? 'Thử thay đổi bộ lọc hoặc từ khóa' : 'Đơn hàng sẽ xuất hiện khi khách hàng tạo yêu cầu dịch vụ'}
+              {search || statusFilter !== 'all' ? 'Thử thay đổi bộ lọc hoặc từ khóa' : 'Đơn hàng sẽ xuất hiện khi khách hàng xác nhận báo giá.'}
             </p>
           </div>
         ) : (
@@ -245,11 +275,11 @@ export default function SaleOrdersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/80">
-                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Mã đơn</th>
-                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Khách hàng</th>
-                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Dịch vụ</th>
-                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Trạng thái</th>
-                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Ngày tạo</th>
+                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide"><button onClick={() => toggleSort('id')} className="flex items-center hover:text-gray-700 transition-colors">Mã đơn<SortIcon field="id" /></button></th>
+                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide"><button onClick={() => toggleSort('customer')} className="flex items-center hover:text-gray-700 transition-colors">Khách hàng<SortIcon field="customer" /></button></th>
+                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide"><button onClick={() => toggleSort('service')} className="flex items-center hover:text-gray-700 transition-colors">Dịch vụ<SortIcon field="service" /></button></th>
+                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide"><button onClick={() => toggleSort('status')} className="flex items-center hover:text-gray-700 transition-colors">Trạng thái<SortIcon field="status" /></button></th>
+                <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide"><button onClick={() => toggleSort('createdAt')} className="flex items-center hover:text-gray-700 transition-colors">Ngày tạo<SortIcon field="createdAt" /></button></th>
                 <th className="text-left px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Thao tác</th>
               </tr>
             </thead>
@@ -267,7 +297,7 @@ export default function SaleOrdersPage() {
                         {search || statusFilter !== 'all' ? 'Không tìm thấy đơn hàng phù hợp' : 'Chưa có đơn hàng nào'}
                       </p>
                       <p className="text-gray-400 text-xs">
-                        {search || statusFilter !== 'all' ? 'Thử thay đổi bộ lọc hoặc từ khóa' : 'Đơn hàng sẽ xuất hiện khi khách hàng tạo yêu cầu dịch vụ'}
+                        {search || statusFilter !== 'all' ? 'Thử thay đổi bộ lọc hoặc từ khóa' : 'Đơn hàng sẽ xuất hiện khi khách hàng xác nhận báo giá.'}
                       </p>
                     </div>
                   </td>
@@ -287,7 +317,7 @@ export default function SaleOrdersPage() {
                     <td className="px-6 py-4 text-gray-500 text-xs">{order.createdAt}</td>
                     <td className="px-6 py-4">
                       <button
-                        onClick={() => setSelectedOrder(order)}
+                        onClick={() => { setDrawerMounting(true); setSelectedOrder(order); setTimeout(() => setDrawerMounting(false), 250); }}
                         className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
                         aria-label={`Xem chi tiết đơn ${order.id}`}
                       >
@@ -317,31 +347,48 @@ export default function SaleOrdersPage() {
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Mã đơn</p>
-                <p className="font-mono text-sm font-medium text-gray-800">{selectedOrder.id}</p>
+            {drawerMounting ? (
+              <div className="p-6 space-y-4 animate-pulse">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i}>
+                    <div className="h-3 w-1/4 bg-gray-100 rounded mb-2" />
+                    <div className="h-5 w-3/4 bg-gray-100 rounded" />
+                  </div>
+                ))}
               </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Khách hàng</p>
-                <p className="text-sm text-gray-800">{selectedOrder.customer}</p>
+            ) : (
+              <div className="p-6 space-y-4">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Mã đơn</p>
+                  <p className="font-mono text-sm font-medium text-gray-800">{selectedOrder.id}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Khách hàng</p>
+                  <p className="text-sm text-gray-800">{selectedOrder.customer}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Dịch vụ</p>
+                  <p className="text-sm text-gray-800">{selectedOrder.service}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Trạng thái</p>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${statusConfig[selectedOrder.status].color}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${statusConfig[selectedOrder.status].dot}`} />
+                    {statusConfig[selectedOrder.status].label}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Ngày tạo</p>
+                  <p className="text-sm text-gray-800">{selectedOrder.createdAt}</p>
+                </div>
+                {selectedOrder.priority && (
+                  <div>
+                    <p className="text-xs text-gray-500 mb-1">Độ ưu tiên</p>
+                    <p className="text-sm text-gray-800">{selectedOrder.priority}</p>
+                  </div>
+                )}
               </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Dịch vụ</p>
-                <p className="text-sm text-gray-800">{selectedOrder.service}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Trạng thái</p>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${statusConfig[selectedOrder.status].color}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${statusConfig[selectedOrder.status].dot}`} />
-                  {statusConfig[selectedOrder.status].label}
-                </span>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Ngày tạo</p>
-                <p className="text-sm text-gray-800">{selectedOrder.createdAt}</p>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       )}
