@@ -311,27 +311,6 @@ export async function protoSendQuoteToClient(quotationId: string): Promise<Quota
 
 // ─── Lifecycle & Operations ─────────────────────────────────────────────────
 
-export async function protoCalculateQuotationMargin(payload: {
-  totalAmount: string;
-  items: string;
-}): Promise<QuotationResult> {
-  const mod = await loadQuotationModule();
-  if (!mod) return { success: false, error: 'PROTO_MODULE_NOT_AVAILABLE' };
-  try {
-    const response = await executeWithRefresh(async () => {
-      const { client, mod: m } = await createAuthenticatedClient();
-      const request = create(m.CalculateQuotationMarginRequestSchema as unknown as DescMessage, {
-        totalAmount: payload.totalAmount,
-        items: payload.items,
-      });
-      return await (client as Record<string, RpcMethod>).calculateQuotationMargin(request);
-    });
-    return { success: true, response };
-  } catch (err) {
-    return { success: false, error: err instanceof Error ? err.message : 'CalculateQuotationMargin failed' };
-  }
-}
-
 export async function protoConvertToContract(payload: {
   quotationId: string;
   title: string;
@@ -398,5 +377,30 @@ export async function protoGetQuoteContractStatus(quotationId: string): Promise<
     return { success: true, response };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'GetQuoteContractStatus failed' };
+  }
+}
+
+export async function protoCalculateQuotationMargin(payload: {
+  totalAmount: string;
+  items: string;
+  creatorId?: string;
+  taxAmount?: string;
+}): Promise<QuotationResult> {
+  const mod = await loadQuotationModule();
+  if (!mod) return { success: false, error: 'PROTO_MODULE_NOT_AVAILABLE' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const { client, mod: m } = await createAuthenticatedClient();
+      const request = create(m.CalculateQuotationMarginRequestSchema as unknown as DescMessage, {
+        totalAmount: payload.totalAmount,
+        items: payload.items,
+        ...(payload.creatorId ? { creatorId: payload.creatorId } : {}),
+        ...(payload.taxAmount ? { taxAmount: payload.taxAmount } : {}),
+      });
+      return await (client as Record<string, RpcMethod>).calculateQuotationMargin(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'CalculateQuotationMargin failed' };
   }
 }

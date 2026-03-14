@@ -282,7 +282,7 @@ const ChatMessageItem = memo(function ChatMessageItem({ msg, attachmentUrl, atta
             </div>
           </div>
         ) : (
-          <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
+          <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm break-words overflow-hidden ${
             msg.isMe
               ? 'bg-blue-600 text-white rounded-tr-none'
               : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none'

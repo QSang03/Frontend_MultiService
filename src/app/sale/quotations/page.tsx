@@ -75,8 +75,10 @@ type MarginResult = {
   grossMarginPercent: string;
   netProfit: string;
   totalCost: string;
+  expectedCommission?: string;
+  commissionRate?: string;
 };
-type QuotationItemRow = { description: string; quantity: string; unit_price: string };
+type QuotationItemRow = { description: string; quantity: string; unit_price: string; unit_cost: string };
 type CustomerOption = { id: string; name: string; company: string; email?: string; orgId?: string };
 type TicketOption = { id: string; title: string; status: number; creatorId?: string };
 type OrgCreditBalance = {
@@ -216,7 +218,6 @@ export default function SaleQuotationsPage() {
   const [ticketId, setTicketId] = useState('');
 
   // UC-3 Quoting state
-  const [quotationId, setQuotationId] = useState('');
   const [quotationTotalAmount, setQuotationTotalAmount] = useState('');
   const [quotationTaxAmount, setQuotationTaxAmount] = useState('');
   const [quotationNote, setQuotationNote] = useState('');
@@ -272,6 +273,8 @@ export default function SaleQuotationsPage() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const pipelineTableRef = useRef<HTMLDivElement>(null);
 
   // Expanded row detail
   const [expandedQuotationId, setExpandedQuotationId] = useState<string | null>(null);
@@ -609,12 +612,13 @@ export default function SaleQuotationsPage() {
             description: r.description,
             quantity: r.quantity,
             unit_price: r.unit_price,
+            unit_cost: r.unit_cost || '0',
             total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
           }))),
         }),
       });
       const json = await res.json() as { template?: RealTemplate; error?: string };
-      if (!res.ok) { addToast(json.error ?? 'Tạo template thất bại.', { type: 'error' }); return; }
+      if (!res.ok) { addToast(json.error ?? 'Tạo template thất bại.', { type: 'error' });return; }
       addToast('Đã tạo template mới!', { type: 'success' });
       setNewTemplateName(''); setNewTemplateDesc(''); setNewTemplateCategory(''); setNewTemplateItemRows([]);
       setShowCreateTemplateForm(false);
@@ -637,12 +641,13 @@ export default function SaleQuotationsPage() {
     setQuotationTaxAmount(q.taxAmount || '');
     setQuotationNote(q.note || '');
     try {
-      type RawItem = { description?: string; quantity?: number | string; unit_price?: number | string };
+      type RawItem = { description?: string; quantity?: number | string; unit_price?: number | string; unit_cost?: number | string };
       const parsed = JSON.parse(q.items) as RawItem[];
       const rows = parsed.map(it => ({
         description: String(it.description ?? ''),
         quantity: String(it.quantity ?? '1'),
         unit_price: String(it.unit_price ?? ''),
+        unit_cost: String(it.unit_cost ?? ''),
       }));
       setQuotationItemRows(rows);
       setQuotationTotalAmount(String(rows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
@@ -655,7 +660,7 @@ export default function SaleQuotationsPage() {
     void fetchTickets(q.customerId);
     void fetchCustomers();
     setShowCreateModal(true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Delete draft quotation (sets status to CANCELLED)
   const handleDeleteQuotation = async (quotationId: string) => {
@@ -692,6 +697,7 @@ export default function SaleQuotationsPage() {
             description: r.description,
             quantity: r.quantity,
             unit_price: r.unit_price,
+            unit_cost: r.unit_cost || '0',
             total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
             metadata: {},
           }))),
@@ -730,6 +736,7 @@ export default function SaleQuotationsPage() {
             description: r.description,
             quantity: r.quantity,
             unit_price: r.unit_price,
+            unit_cost: r.unit_cost || '0',
             total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
           }))),
         }),
@@ -770,6 +777,7 @@ export default function SaleQuotationsPage() {
       description: item.name,
       quantity: '1',
       unit_price: String(item.price),
+      unit_cost: '',
     })));
     const total = template.defaultItems.reduce((s, i) => s + i.price, 0);
     setQuotationTotalAmount(String(total));
@@ -832,6 +840,7 @@ export default function SaleQuotationsPage() {
             description: r.description,
             quantity: r.quantity,
             unit_price: r.unit_price,
+            unit_cost: r.unit_cost || '0',
             total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
             metadata: {},
           }))),
@@ -844,7 +853,6 @@ export default function SaleQuotationsPage() {
       }
       const q = json.quotation as Record<string, unknown>;
       const newQid = String(q?.id ?? '');
-      if (newQid) setQuotationId(newQid);
       const total = Number(quotationTotalAmount) || 0;
       const newQuote: Quote = {
         id: `Q-${new Date().getFullYear()}-${String(quotes.length + 1).padStart(3, '0')}`,
@@ -903,24 +911,62 @@ export default function SaleQuotationsPage() {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num);
   };
 
+  // Auto-call margin API with 800ms debounce whenever items change (only if has unit_cost)
+  useEffect(() => {
+    const hasUnitCost = quotationItemRows.some(r => parseFloat(r.unit_cost || '0') > 0);
+    if (quotationItemRows.length === 0 || !hasUnitCost) return;
+    const timer = setTimeout(() => {
+      void (async () => {
+        setLoadingMargin(true);
+        try {
+          const response = await fetch('/api/sale/quotations/calculate-margin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              total_amount: quotationTotalAmount || '0',
+              tax_amount: quotationTaxAmount || undefined,
+              items: JSON.stringify(quotationItemRows.map(r => ({
+                description: r.description,
+                quantity: r.quantity,
+                unit_price: r.unit_price,
+                unit_cost: r.unit_cost || '0',
+                total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
+                metadata: {},
+              }))),
+            }),
+          });
+          const json = await response.json();
+          if (response.ok) {
+            setMarginResult({
+              grossMarginPercent: String(json.margin_percent ?? '0'),
+              netProfit: String(json.net_profit ?? '0'),
+              totalCost: String(json.total_cost ?? '0'),
+              expectedCommission: json.expected_commission != null ? String(json.expected_commission) : undefined,
+              commissionRate: json.commission_rate != null ? String(json.commission_rate) : undefined,
+            });
+          }
+        } finally {
+          setLoadingMargin(false);
+        }
+      })();
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [quotationItemRows, quotationTotalAmount, quotationTaxAmount]);
+
   const handleCalculateMargin = async () => {
-    if (!ticketId) {
-      addToast('Vui lòng chọn Ticket trước.', { type: 'error' });
-      return;
-    }
     setLoadingMargin(true);
     try {
       const response = await fetch('/api/sale/quotations/calculate-margin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ticket_id: ticketId,
-          quotation_id: quotationId,
           total_amount: quotationTotalAmount || '0',
+          tax_amount: quotationTaxAmount || undefined,
           items: JSON.stringify(quotationItemRows.map(r => ({
             description: r.description,
             quantity: r.quantity,
             unit_price: r.unit_price,
+            unit_cost: r.unit_cost || '0',
             total_price: String(Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0'))),
             metadata: {},
           }))),
@@ -928,13 +974,15 @@ export default function SaleQuotationsPage() {
       });
       const json = await response.json();
       if (!response.ok) {
-        addToast(json?.error || 'CalculateMargin thất bại.', { type: 'error' });
+        addToast(json?.error || 'CalculateMargin thất bại.', {type: 'error' });
         return;
       }
       setMarginResult({
-        grossMarginPercent: String(json.gross_margin_percent ?? '0'),
+        grossMarginPercent: String(json.margin_percent ?? '0'),
         netProfit: String(json.net_profit ?? '0'),
         totalCost: String(json.total_cost ?? '0'),
+        expectedCommission: json.expected_commission != null ? String(json.expected_commission) : undefined,
+        commissionRate: json.commission_rate != null ? String(json.commission_rate) : undefined,
       });
       addToast('CalculateMargin thành công.', { type: 'success' });
     } catch {
@@ -1010,6 +1058,13 @@ export default function SaleQuotationsPage() {
   // Reset page when filter changes
   useEffect(() => { setCurrentPage(1); }, [pipelineStatusFilter, pipelineSearchQuery]);
 
+  // Scroll to top of table when page changes
+  useEffect(() => {
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollTop = 0;
+    }
+  }, [currentPage]);
+
   // Pipeline totals
   const pipelineTotals = useMemo(() => {
     const totalValue = filteredRealQuotations.reduce((s, q) => s + (Number(q.totalAmount) || 0), 0);
@@ -1033,12 +1088,13 @@ export default function SaleQuotationsPage() {
 
     // Pre-fill line items from JSON
     try {
-      type RawItem = { description?: string; quantity?: number | string; unit_price?: number | string };
+      type RawItem = { description?: string; quantity?: number | string; unit_price?: number | string; unit_cost?: number | string };
       const parsed = JSON.parse(q.items) as RawItem[];
       const rows = parsed.map(it => ({
         description: String(it.description ?? ''),
         quantity: String(it.quantity ?? '1'),
         unit_price: String(it.unit_price ?? ''),
+        unit_cost: String(it.unit_cost ?? ''),
       }));
       setQuotationItemRows(rows);
       setQuotationTotalAmount(String(rows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
@@ -1056,7 +1112,7 @@ export default function SaleQuotationsPage() {
     void fetchCustomers();
 
     setShowCreateModal(true);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSort = useCallback((field: SortField) => {
     if (sortField === field) {
@@ -1231,7 +1287,7 @@ export default function SaleQuotationsPage() {
             </div>
 
             {/* Result count + pipeline value summary */}
-            <div className="flex items-center justify-between mb-3 text-xs text-gray-500">
+            <div ref={pipelineTableRef} className="flex items-center justify-between mb-3 text-xs text-gray-500">
               <span>{filteredRealQuotations.length} báo giá · Tổng giá trị: <span className="font-semibold text-gray-700">{pipelineTotals.totalValue.toLocaleString('vi-VN')} ₫</span></span>
               <span>Trang {currentPage}/{totalPages}</span>
             </div>
@@ -1265,7 +1321,7 @@ export default function SaleQuotationsPage() {
                 )}
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-gray-100 max-h-[60vh] overflow-y-auto">
+              <div ref={tableContainerRef} className="overflow-x-auto rounded-xl border border-gray-100 max-h-[60vh] overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 z-10">
                     <tr className="bg-gray-50 border-b border-gray-100">
@@ -1283,7 +1339,13 @@ export default function SaleQuotationsPage() {
                       </th>
                       <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-50 cursor-pointer select-none hover:text-gray-700"
                         onClick={() => handleSort('marginPercent')}>
-                        <span className="inline-flex items-center gap-1 justify-end">Gross Margin <SortIcon field="marginPercent" /></span>
+                        <span className="inline-flex items-center gap-1 justify-end">
+                          <span className="flex flex-col items-end leading-tight">
+                            <span>Gross Margin</span>
+                            <span className="text-[9px] font-normal text-gray-400 normal-case">(giá bán ÷ giá nhập × 100)</span>
+                          </span>
+                          <SortIcon field="marginPercent" />
+                        </span>
                       </th>
                       <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-50">Net Profit</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-50 cursor-pointer select-none hover:text-gray-700"
@@ -1703,12 +1765,12 @@ export default function SaleQuotationsPage() {
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {['Linh kiện', 'Công thợ', 'Phụ tùng', 'Dịch vụ', 'Vận chuyển', 'Khác'].map(label => (
                         <button key={label} type="button"
-                          onClick={() => setNewTemplateItemRows(prev => [...prev, { description: label, quantity: '1', unit_price: '' }])}
+                          onClick={() => setNewTemplateItemRows(prev => [...prev, { description: label, quantity: '1', unit_price: '', unit_cost: '' }])}
                           className="px-2 py-0.5 text-xs rounded-full border border-blue-200 text-blue-700 bg-white hover:bg-blue-50 transition-colors">
                           + {label}
                         </button>
                       ))}
-                      <button type="button" onClick={() => setNewTemplateItemRows(prev => [...prev, { description: '', quantity: '1', unit_price: '' }])}
+                      <button type="button" onClick={() => setNewTemplateItemRows(prev => [...prev, { description: '', quantity: '1', unit_price: '', unit_cost: '' }])}
                         className="px-2 py-0.5 text-xs rounded-full border border-dashed border-gray-300 text-gray-400 bg-white hover:bg-gray-50 transition-colors">
                         + Dòng trống
                       </button>
@@ -1717,13 +1779,13 @@ export default function SaleQuotationsPage() {
                       <p className="text-xs text-gray-400 italic py-1">Bấm nhãn bên trên để thêm hạng mục...</p>
                     ) : (
                       <div className="space-y-1.5">
-                        <div className="grid gap-x-1.5 text-xs text-gray-400 font-medium px-0.5" style={{ gridTemplateColumns: '1fr 52px 90px 72px 18px' }}>
-                          <span>Mô tả</span><span className="text-center">SL</span><span>Đơn giá (₫)</span><span className="text-right">Thành tiền</span><span></span>
+                        <div className="grid gap-x-1.5 text-xs text-gray-400 font-medium px-0.5" style={{ gridTemplateColumns: '1fr 52px 90px 90px 72px 18px' }}>
+                          <span>Mô tả</span><span className="text-center">SL</span><span>Đơn giá (₫)</span><span>Giá nhập (₫)</span><span className="text-right">Thành tiền</span><span></span>
                         </div>
                         {newTemplateItemRows.map((row, idx) => {
                           const rowTotal = Math.round(parseFloat(row.quantity || '0') * parseFloat(row.unit_price || '0'));
                           return (
-                            <div key={idx} className="grid gap-x-1.5 items-center" style={{ gridTemplateColumns: '1fr 52px 90px 72px 18px' }}>
+                            <div key={idx} className="grid gap-x-1.5 items-center" style={{ gridTemplateColumns: '1fr 52px 90px 90px 72px 18px' }}>
                               <input type="text" value={row.description}
                                 onChange={(e) => setNewTemplateItemRows(prev => prev.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
                                 placeholder="Mô tả hạng mục" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
@@ -1733,6 +1795,9 @@ export default function SaleQuotationsPage() {
                               <input type="text" value={row.unit_price}
                                 onChange={(e) => setNewTemplateItemRows(prev => prev.map((r, i) => i === idx ? { ...r, unit_price: e.target.value } : r))}
                                 placeholder="500000" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                              <input type="number" min="0" value={row.unit_cost ?? ''}
+                                onChange={(e) => setNewTemplateItemRows(prev => prev.map((r, i) => i === idx ? { ...r, unit_cost: e.target.value } : r))}
+                                placeholder="0" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400" />
                               <span className="text-xs text-gray-600 font-medium text-right truncate">{rowTotal > 0 ? rowTotal.toLocaleString('vi-VN') : '—'}</span>
                               <button type="button"
                                 onClick={() => setNewTemplateItemRows(prev => prev.filter((_, i) => i !== idx))}
@@ -1740,8 +1805,8 @@ export default function SaleQuotationsPage() {
                             </div>
                           );
                         })}
-                        <div className="grid gap-x-1.5 border-t border-gray-200 pt-1.5" style={{ gridTemplateColumns: '1fr 52px 90px 72px 18px' }}>
-                          <span className="text-xs font-semibold text-gray-600 col-span-3 text-right">Tổng cộng:</span>
+                        <div className="grid gap-x-1.5 border-t border-gray-200 pt-1.5" style={{ gridTemplateColumns: '1fr 52px 90px 90px 72px 18px' }}>
+                          <span className="text-xs font-semibold text-gray-600 col-span-4 text-right">Tổng cộng:</span>
                           <span className="text-xs font-bold text-blue-800 text-right">
                             {newTemplateItemRows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0).toLocaleString('vi-VN')} ₫
                           </span>
@@ -1823,15 +1888,17 @@ export default function SaleQuotationsPage() {
                       <button
                         onClick={() => {
                           try {
-                            const items = JSON.parse(tmpl.items || '[]') as { name?: string; description?: string; price?: number; unit_price?: number }[];
-                            setQuotationItemRows(items.map(it => ({
+                            const items = JSON.parse(tmpl.items || '[]') as { name?: string; description?: string; price?: number; unit_price?: number; unit_cost?: number }[];
+                            const rows = items.map(it => ({
                               description: it.name ?? it.description ?? '',
                               quantity: '1',
                               unit_price: String(it.price ?? it.unit_price ?? ''),
-                            })));
-                            const total = items.reduce((s, it) => s + (it.price ?? it.unit_price ?? 0), 0);
-                            setQuotationTotalAmount(String(total));
+                              unit_cost: String(it.unit_cost ?? ''),
+                            }));
+                            setQuotationItemRows(rows);
+                            setQuotationTotalAmount(String(rows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
                           } catch { /* invalid JSON items */ }
+                          setSelectedTemplateId(tmpl.id);
                           setShowCreateModal(true);
                         }}
                         className="flex-1 text-center text-xs py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium transition-colors"
@@ -1845,12 +1912,13 @@ export default function SaleQuotationsPage() {
                           setNewTemplateDesc(tmpl.description || '');
                           setNewTemplateCategory(tmpl.category || '');
                           try {
-                            type RawItem = { description?: string; name?: string; quantity?: string | number; unit_price?: string | number; price?: string | number };
+                            type RawItem = { description?: string; name?: string; quantity?: string | number; unit_price?: string | number; price?: string | number; unit_cost?: string | number };
                             const items = JSON.parse(tmpl.items || '[]') as RawItem[];
                             setNewTemplateItemRows(items.map(it => ({
                               description: String(it.description ?? it.name ?? ''),
                               quantity: String(it.quantity ?? '1'),
                               unit_price: String(it.unit_price ?? it.price ?? ''),
+                              unit_cost: String(it.unit_cost ?? ''),
                             })));
                           } catch { setNewTemplateItemRows([]); }
                           setShowCreateTemplateForm(true);
@@ -2159,11 +2227,12 @@ export default function SaleQuotationsPage() {
                         const tpl = realTemplates.find(t => t.id === e.target.value);
                         if (tpl?.items) {
                           try {
-                            const parsed = JSON.parse(tpl.items) as Array<{description?: string; quantity?: number|string; unit_price?: number|string}>;
+                            const parsed = JSON.parse(tpl.items) as Array<{description?: string; quantity?: number|string; unit_price?: number|string; unit_cost?: number|string}>;
                             const rows = parsed.map(it => ({
                               description: String(it.description ?? ''),
                               quantity: String(it.quantity ?? '1'),
                               unit_price: String(it.unit_price ?? ''),
+                              unit_cost: String(it.unit_cost ?? ''),
                             }));
                             setQuotationItemRows(rows);
                             setQuotationTotalAmount(String(rows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
@@ -2206,12 +2275,12 @@ export default function SaleQuotationsPage() {
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {['Linh kiện', 'Công thợ', 'Phụ tùng', 'Dịch vụ', 'Vận chuyển', 'Khác'].map(label => (
                     <button key={label} type="button"
-                      onClick={() => setQuotationItemRows(prev => [...prev, { description: label, quantity: '1', unit_price: '' }])}
+                      onClick={() => setQuotationItemRows(prev => [...prev, { description: label, quantity: '1', unit_price: '', unit_cost: '' }])}
                       className="px-2 py-0.5 text-xs rounded-full border border-violet-200 text-violet-700 bg-white hover:bg-violet-100 transition-colors">
                       + {label}
                     </button>
                   ))}
-                  <button type="button" onClick={() => setQuotationItemRows(prev => [...prev, { description: '', quantity: '1', unit_price: '' }])}
+                  <button type="button" onClick={() => setQuotationItemRows(prev => [...prev, { description: '', quantity: '1', unit_price: '', unit_cost: '' }])}
                     className="px-2 py-0.5 text-xs rounded-full border border-dashed border-gray-300 text-gray-400 bg-white hover:bg-gray-50 transition-colors">
                     + Dòng trống
                   </button>
@@ -2220,13 +2289,13 @@ export default function SaleQuotationsPage() {
                   <p className="text-xs text-gray-400 italic py-1">Bấm nhãn bên trên để thêm hạng mục...</p>
                 ) : (
                   <div className="space-y-1.5">
-                    <div className="grid gap-x-1.5 text-xs text-gray-400 font-medium px-0.5" style={{ gridTemplateColumns: '1fr 52px 90px 72px 18px' }}>
-                      <span>Mô tả</span><span className="text-center">SL</span><span>Đơn giá (₫)</span><span className="text-right">Thành tiền</span><span></span>
+                    <div className="grid gap-x-1.5 text-xs text-gray-400 font-medium px-0.5" style={{ gridTemplateColumns: '1fr 52px 90px 90px 72px 18px' }}>
+                      <span>Mô tả</span><span className="text-center">SL</span><span>Đơn giá (₫)</span><span>Giá nhập (₫)</span><span className="text-right">Thành tiền</span><span></span>
                     </div>
                     {quotationItemRows.map((row, idx) => {
                       const rowTotal = Math.round(parseFloat(row.quantity || '0') * parseFloat(row.unit_price || '0'));
                       return (
-                        <div key={idx} className="grid gap-x-1.5 items-center" style={{ gridTemplateColumns: '1fr 52px 90px 72px 18px' }}>
+                        <div key={idx} className="grid gap-x-1.5 items-center" style={{ gridTemplateColumns: '1fr 52px 90px 90px 72px 18px' }}>
                           <input type="text" value={row.description}
                             onChange={(e) => setQuotationItemRows(prev => prev.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
                             placeholder="Mô tả hạng mục" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400" />
@@ -2244,6 +2313,9 @@ export default function SaleQuotationsPage() {
                               setQuotationTotalAmount(String(newRows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
                             }}
                             placeholder="500000" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400" />
+                          <input type="number" min="0" value={row.unit_cost ?? ''}
+                            onChange={(e) => setQuotationItemRows(prev => prev.map((r, i) => i === idx ? { ...r, unit_cost: e.target.value } : r))}
+                            placeholder="0" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400" />
                           <span className="text-xs text-gray-600 font-medium text-right truncate">{rowTotal > 0 ? rowTotal.toLocaleString('vi-VN') : '—'}</span>
                           <button type="button"
                             onClick={() => {
@@ -2255,8 +2327,8 @@ export default function SaleQuotationsPage() {
                         </div>
                       );
                     })}
-                    <div className="grid gap-x-1.5 border-t border-gray-200 pt-1.5" style={{ gridTemplateColumns: '1fr 52px 90px 72px 18px' }}>
-                      <span className="text-xs font-semibold text-gray-600 col-span-3 text-right">Tổng cộng:</span>
+                    <div className="grid gap-x-1.5 border-t border-gray-200 pt-1.5" style={{ gridTemplateColumns: '1fr 52px 90px 90px 72px 18px' }}>
+                      <span className="text-xs font-semibold text-gray-600 col-span-4 text-right">Tổng cộng:</span>
                       <span className="text-xs font-bold text-violet-800 text-right">
                         {quotationItemRows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0).toLocaleString('vi-VN')} ₫
                       </span>
@@ -2271,20 +2343,21 @@ export default function SaleQuotationsPage() {
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-semibold text-violet-700 flex items-center gap-1.5">
                     <BarChart3 className="w-3.5 h-3.5" /> Kiểm tra Gross Margin
+                    {loadingMargin && <Loader2 className="w-3 h-3 animate-spin text-violet-400" />}
                   </span>
                   <button
                     type="button"
                     onClick={() => void handleCalculateMargin()}
-                    disabled={loadingMargin || !ticketId || quotationItemRows.length === 0}
+                    disabled={loadingMargin || quotationItemRows.length === 0}
                     className="inline-flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-40 transition-colors font-medium"
                   >
                     {loadingMargin ? <Loader2 className="w-3 h-3 animate-spin" /> : <Calculator className="w-3 h-3" />}
-                    Tính margin
+                    Tính lại
                   </button>
                 </div>
-                {!ticketId && <p className="text-[10px] text-gray-400 italic">Chọn Ticket để kích hoạt tính năng này.</p>}
+                {!marginResult && <p className="text-[10px] text-gray-400 italic">Nhập giá nhập cho các hạng mục để xem Gross Margin tự động.</p>}
                 {marginResult && (
-                  <div className="grid grid-cols-3 gap-2 mt-2">
+                  <div className="grid grid-cols-2 gap-2 mt-2">
                     <div className="bg-white rounded-lg p-2 text-center border border-violet-100">
                       <p className="text-[10px] text-gray-500 mb-0.5">Gross Margin</p>
                       <p className={`text-sm font-bold ${parseFloat(marginResult.grossMarginPercent) < 15 ? 'text-red-600' : parseFloat(marginResult.grossMarginPercent) < 25 ? 'text-amber-600' : 'text-emerald-600'}`}>
@@ -2292,13 +2365,27 @@ export default function SaleQuotationsPage() {
                       </p>
                     </div>
                     <div className="bg-white rounded-lg p-2 text-center border border-violet-100">
-                      <p className="text-[10px] text-gray-500 mb-0.5">Tổng chi phí</p>
-                      <p className="text-sm font-bold text-gray-800">{Number(marginResult.totalCost).toLocaleString('vi-VN')} ₫</p>
-                    </div>
-                    <div className="bg-white rounded-lg p-2 text-center border border-violet-100">
                       <p className="text-[10px] text-gray-500 mb-0.5">Lợi nhuận ròng</p>
                       <p className="text-sm font-bold text-emerald-700">{Number(marginResult.netProfit).toLocaleString('vi-VN')} ₫</p>
                     </div>
+                    {marginResult.commissionRate != null && (
+                      <div className="bg-white rounded-lg p-2 text-center border border-violet-100">
+                        <p className="text-[10px] text-gray-500 mb-0.5">Tỷ lệ hoa hồng</p>
+                        <p className="text-sm font-bold text-blue-700">{marginResult.commissionRate}%</p>
+                      </div>
+                    )}
+                    {marginResult.expectedCommission != null && (
+                      <div className="bg-white rounded-lg p-2 text-center border border-violet-100">
+                        <p className="text-[10px] text-gray-500 mb-0.5">Hoa hồng dự kiến</p>
+                        <p className="text-sm font-bold text-violet-700">{Number(marginResult.expectedCommission).toLocaleString('vi-VN')} ₫</p>
+                      </div>
+                    )}
+                    {Number(marginResult.totalCost) > 0 && (
+                      <div className="bg-white rounded-lg p-2 text-center border border-violet-100">
+                        <p className="text-[10px] text-gray-500 mb-0.5">Tổng chi phí</p>
+                        <p className="text-sm font-bold text-gray-800">{Number(marginResult.totalCost).toLocaleString('vi-VN')} ₫</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
