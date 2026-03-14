@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, memo, type ChangeEvent, type KeyboardEvent } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useRouter } from 'next/navigation';
-import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
+import { ensureAuthReadyWithUserId } from '@/lib/auth/ensure-auth-ready';
 import { 
   Search, Plus, MoreVertical, Paperclip, Send, ChevronDown, Volume2, VolumeX,
   Clock, CheckCircle2, Calculator, FileText, SendHorizontal, Eye, Activity, AlertTriangle, Loader2
@@ -339,6 +339,8 @@ export default function SupportTrackingPage() {
   const attachmentUrlByFileIdRef = useRef(attachmentUrlByFileId);
   attachmentUrlByFileIdRef.current = attachmentUrlByFileId;
   const chatEventSourceRef = useRef<EventSource | null>(null);
+  const ticketsInitFetchedRef = useRef(false);
+  const statusFilterMountedRef = useRef(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [loadingDiscovery, setLoadingDiscovery] = useState(false);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
@@ -508,27 +510,6 @@ export default function SupportTrackingPage() {
     }
   }, [enableNewMessageSound]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadCurrentUserId = async () => {
-      try {
-        const response = await fetch('/api/auth/me', { credentials: 'include' });
-        const json = await response.json().catch(() => ({}));
-        if (!response.ok || cancelled) return;
-        const userId = String(json?.user_id ?? '').trim();
-        if (userId) setCurrentUserId(userId);
-      } catch {
-      }
-    };
-
-    void loadCurrentUserId();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const mapChatMessageToUi = useCallback((raw: Record<string, unknown>): ChatUiMessage => {
     const senderId = String(raw.senderId ?? raw.sender_id ?? '').trim();
     const normalizedSenderId = senderId.toLowerCase();
@@ -672,8 +653,9 @@ export default function SupportTrackingPage() {
       setLoadingMoreTickets(true);
     } else {
       setLoadingTickets(true);
-      const authReady = await ensureAuthReady();
+      const { ok: authReady, userId } = await ensureAuthReadyWithUserId();
       if (!authReady) { router.replace('/login'); return; }
+      if (userId) setCurrentUserId((prev) => prev || userId);
     }
 
     try {
@@ -843,6 +825,7 @@ export default function SupportTrackingPage() {
     };
 
     void loadTicketsPage({ pageToken: '', append: false, orgId: ownerId, status: statusFilter });
+    ticketsInitFetchedRef.current = true;
     void hydrateFromTicketId();
 
     setFlowMessage(
@@ -855,7 +838,7 @@ export default function SupportTrackingPage() {
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
-    if (tickets.length === 0 && !loadingTickets) {
+    if (!ticketsInitFetchedRef.current && tickets.length === 0 && !loadingTickets) {
       void loadTicketsPage({ pageToken: '', append: false, orgId: contextOwnerId || undefined, status: statusFilter });
     }
   }, [contextOwnerId]);
@@ -863,6 +846,10 @@ export default function SupportTrackingPage() {
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
+    if (!statusFilterMountedRef.current) {
+      statusFilterMountedRef.current = true;
+      return;
+    }
     setTicketNextPageToken('');
     void loadTicketsPage({ pageToken: '', append: false, orgId: contextOwnerId || undefined, status: statusFilter });
   }, [statusFilter]);
@@ -1036,6 +1023,7 @@ export default function SupportTrackingPage() {
     void handleSendChatMessage();
   };
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!selectedTicket?.id) {
       setChatRoomId('');
@@ -1055,7 +1043,8 @@ export default function SupportTrackingPage() {
     needsInitialScrollRef.current = false;
     previousChatLengthRef.current = 0;
     void loadChatForTicket(selectedTicket.id);
-  }, [selectedTicket?.id, loadChatForTicket]);
+  }, [selectedTicket?.id]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = chatScrollRef.current;
