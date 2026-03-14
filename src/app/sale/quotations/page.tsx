@@ -222,6 +222,7 @@ export default function SaleQuotationsPage() {
   const [quotationTaxAmount, setQuotationTaxAmount] = useState('');
   const [quotationNote, setQuotationNote] = useState('');
   const [quotationItemRows, setQuotationItemRows] = useState<QuotationItemRow[]>([]);
+  const [quotationItemsError, setQuotationItemsError] = useState('');
   const [marginResult, setMarginResult] = useState<MarginResult | null>(null);
   const [loadingSubmitQuotation, setLoadingSubmitQuotation] = useState(false);
   const [loadingMargin, setLoadingMargin] = useState(false);
@@ -239,6 +240,7 @@ export default function SaleQuotationsPage() {
   const [realQuotations, setRealQuotations] = useState<RealQuotation[]>([]);
   const [loadingRealQuotations, setLoadingRealQuotations] = useState(false);
   const [pipelineSearchQuery, setPipelineSearchQuery] = useState('');
+  const [pipelineSearchInput, setPipelineSearchInput] = useState('');
   const [pipelineStatusFilter, setPipelineStatusFilter] = useState<number | 'all'>('all');
 
   // UC-9: Templates
@@ -372,7 +374,11 @@ export default function SaleQuotationsPage() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowCreateModal(false);
+      if (e.key === 'Escape') {
+        if (showCreateModal && (!!selectedCustomerId || quotationItemRows.length > 0 || !!quotationTotalAmount)) {
+          setConfirmAction({ title: 'Đóng mà không lưu?', message: 'Bạn có thay đổi chưa lưu. Dữ liệu sẽ bị mất nếu đóng.', onConfirm: () => { setConfirmAction(null); setShowCreateModal(false); setEditingQuotation(null); } });
+        } else { setShowCreateModal(false); }
+      }
       // Ctrl+N / Cmd+N to open create modal
       if ((e.ctrlKey || e.metaKey) && e.key === 'n' && !showCreateModal) {
         e.preventDefault();
@@ -823,6 +829,12 @@ export default function SaleQuotationsPage() {
   };
 
   const performQuotationSubmit = async () => {
+    const hasInvalidItem = quotationItemRows.some(r => !r.description.trim() || parseFloat(r.unit_price || '0') <= 0);
+    if (hasInvalidItem) {
+      setQuotationItemsError('Vui lòng điền đầy đủ mô tả và đơn giá cho tất cả hạng mục.');
+      return;
+    }
+    setQuotationItemsError('');
     setLoadingSubmitQuotation(true);
     try {
       const response = await fetch('/api/sale/quotations/create', {
@@ -953,6 +965,9 @@ export default function SaleQuotationsPage() {
     return () => clearTimeout(timer);
   }, [quotationItemRows, quotationTotalAmount, quotationTaxAmount]);
 
+  // Clear items validation error when items change
+  useEffect(() => { setQuotationItemsError(''); }, [quotationItemRows]);
+
   const handleCalculateMargin = async () => {
     setLoadingMargin(true);
     try {
@@ -1055,7 +1070,32 @@ export default function SaleQuotationsPage() {
     return sortedRealQuotations.slice(start, start + PAGE_SIZE);
   }, [sortedRealQuotations, currentPage]);
 
-  // Reset page when filter changes
+  // Debounce pipeline search input by 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => setPipelineSearchQuery(pipelineSearchInput), 300);
+    return () => clearTimeout(timer);
+  }, [pipelineSearchInput]);
+
+  // Persist pipeline search/filter/page to URL
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (pipelineSearchQuery) params.set('q', pipelineSearchQuery); else params.delete('q');
+    if (pipelineStatusFilter !== 'all') params.set('status', String(pipelineStatusFilter)); else params.delete('status');
+    if (currentPage > 1) params.set('page', String(currentPage)); else params.delete('page');
+    window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+  }, [pipelineSearchQuery, pipelineStatusFilter, currentPage]);
+
+  // Restore pipeline search/filter/page from URL on mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get('q'); if (q) { setPipelineSearchInput(q); }
+    const status = params.get('status'); if (status) { const n = Number(status); setPipelineStatusFilter(isNaN(n) ? 'all' : n as number | 'all'); }
+    const page = params.get('page'); if (page) { const n = Number(page); if (n > 0) setCurrentPage(n); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset to page 1 when filter/search changes
   useEffect(() => { setCurrentPage(1); }, [pipelineStatusFilter, pipelineSearchQuery]);
 
   // Scroll to top of table when page changes
@@ -1140,6 +1180,31 @@ export default function SaleQuotationsPage() {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 1500);
   }, []);
+
+  const handleExportCSV = () => {
+    const rows = filteredRealQuotations;
+    const headers = ['ID', 'Khách hàng', 'Trạng thái', 'Tổng giá trị', 'Thuế', 'Tiền tệ', 'Margin %', 'Net Profit', 'Ngày tạo'];
+    const statusLabel = (s: number) => ['', 'Draft', 'Đã gửi', 'Xét duyệt', 'Đã chấp nhận', 'Từ chối', 'Đã ký HĐ', 'Đã hủy'][s] ?? String(s);
+    const csvRows = [
+      headers.join(','),
+      ...rows.map(q => [
+        q.id,
+        `"${(q.customerName || q.customerId).replace(/"/g, '""')}"`,
+        statusLabel(q.status),
+        q.totalAmount,
+        q.taxAmount,
+        q.currency,
+        q.marginPercent ?? '',
+        q.netProfit ?? '',
+        q.createdAt ? new Date(q.createdAt).toLocaleDateString('vi-VN') : '',
+      ].join(',')),
+    ].join('\n');
+    const blob = new Blob(['\uFEFF' + csvRows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `quotations_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  };
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <ChevronsUpDown className="w-3 h-3 text-gray-300" />;
@@ -1276,10 +1341,10 @@ export default function SaleQuotationsPage() {
               </div>
               <div className="relative sm:ml-auto">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-                <input value={pipelineSearchQuery} onChange={e => setPipelineSearchQuery(e.target.value)}
+                <input value={pipelineSearchInput} onChange={e => setPipelineSearchInput(e.target.value)}
                   placeholder="Tìm ID, khách hàng, ghi chú..." className="pl-8 pr-8 py-1.5 text-xs border border-gray-200 rounded-lg w-56 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white" />
-                {pipelineSearchQuery && (
-                  <button onClick={() => setPipelineSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                {pipelineSearchInput && (
+                  <button onClick={() => setPipelineSearchInput('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                     <X className="w-3 h-3" />
                   </button>
                 )}
@@ -1289,7 +1354,14 @@ export default function SaleQuotationsPage() {
             {/* Result count + pipeline value summary */}
             <div ref={pipelineTableRef} className="flex items-center justify-between mb-3 text-xs text-gray-500">
               <span>{filteredRealQuotations.length} báo giá · Tổng giá trị: <span className="font-semibold text-gray-700">{pipelineTotals.totalValue.toLocaleString('vi-VN')} ₫</span></span>
-              <span>Trang {currentPage}/{totalPages}</span>
+              <div className="flex items-center gap-3">
+                <span>Trang {currentPage}/{totalPages}</span>
+                <button onClick={handleExportCSV} title="Xuất danh sách báo giá ra CSV"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors text-xs font-medium">
+                  <BarChart3 className="w-3 h-3" />
+                  Xuất CSV
+                </button>
+              </div>
             </div>
 
             {/* Pipeline table */}
@@ -1314,7 +1386,7 @@ export default function SaleQuotationsPage() {
                     : 'Tạo báo giá mới để bắt đầu theo dõi pipeline.'}
                 </p>
                 {(pipelineSearchQuery || pipelineStatusFilter !== 'all') && (
-                  <button onClick={() => { setPipelineSearchQuery(''); setPipelineStatusFilter('all'); }}
+                  <button onClick={() => { setPipelineSearchInput(''); setPipelineStatusFilter('all'); }}
                     className="mt-3 text-xs text-blue-600 hover:text-blue-700 font-medium">
                     Xóa bộ lọc
                   </button>
@@ -2057,7 +2129,13 @@ export default function SaleQuotationsPage() {
       {showCreateModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) { setShowCreateModal(false); setEditingQuotation(null); } }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              if (!!selectedCustomerId || quotationItemRows.length > 0 || !!quotationTotalAmount) {
+                setConfirmAction({ title: 'Đóng mà không lưu?', message: 'Bạn có thay đổi chưa lưu. Dữ liệu sẽ bị mất nếu đóng.', onConfirm: () => { setConfirmAction(null); setShowCreateModal(false); setEditingQuotation(null); } });
+              } else { setShowCreateModal(false); setEditingQuotation(null); }
+            }
+          }}
         >
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
@@ -2072,7 +2150,11 @@ export default function SaleQuotationsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="hidden sm:inline-flex text-[10px] text-gray-400 border border-gray-200 rounded px-1.5 py-0.5">ESC để đóng</span>
-                <button onClick={() => { setShowCreateModal(false); setEditingQuotation(null); }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                <button onClick={() => {
+                  if (!!selectedCustomerId || quotationItemRows.length > 0 || !!quotationTotalAmount) {
+                    setConfirmAction({ title: 'Đóng mà không lưu?', message: 'Bạn có thay đổi chưa lưu. Dữ liệu sẽ bị mất nếu đóng.', onConfirm: () => { setConfirmAction(null); setShowCreateModal(false); setEditingQuotation(null); } });
+                  } else { setShowCreateModal(false); setEditingQuotation(null); }
+                }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -2298,7 +2380,7 @@ export default function SaleQuotationsPage() {
                         <div key={idx} className="grid gap-x-1.5 items-center" style={{ gridTemplateColumns: '1fr 52px 90px 90px 72px 18px' }}>
                           <input type="text" value={row.description}
                             onChange={(e) => setQuotationItemRows(prev => prev.map((r, i) => i === idx ? { ...r, description: e.target.value } : r))}
-                            placeholder="Mô tả hạng mục" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400" />
+                            placeholder="Mô tả hạng mục" className={`border ${quotationItemsError && !row.description.trim() ? 'border-red-400' : 'border-gray-200'} rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400`} />
                           <input type="number" value={row.quantity} min="1"
                             onChange={(e) => {
                               const newRows = quotationItemRows.map((r, i) => i === idx ? { ...r, quantity: e.target.value } : r);
@@ -2312,7 +2394,7 @@ export default function SaleQuotationsPage() {
                               setQuotationItemRows(newRows);
                               setQuotationTotalAmount(String(newRows.reduce((s, r) => s + Math.round(parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0)));
                             }}
-                            placeholder="500000" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400" />
+                            placeholder="500000" className={`border ${quotationItemsError && parseFloat(row.unit_price || '0') <= 0 ? 'border-red-400' : 'border-gray-200'} rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400`} />
                           <input type="number" min="0" value={row.unit_cost ?? ''}
                             onChange={(e) => setQuotationItemRows(prev => prev.map((r, i) => i === idx ? { ...r, unit_cost: e.target.value } : r))}
                             placeholder="0" className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-violet-400" />
@@ -2335,6 +2417,9 @@ export default function SaleQuotationsPage() {
                       <span></span>
                     </div>
                   </div>
+                )}
+                {quotationItemsError && (
+                  <p className="text-xs text-red-500 mt-1">{quotationItemsError}</p>
                 )}
               </div>
 
@@ -2409,7 +2494,11 @@ export default function SaleQuotationsPage() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => { setShowCreateModal(false); setEditingQuotation(null); }}
+                  onClick={() => {
+                    if (!!selectedCustomerId || quotationItemRows.length > 0 || !!quotationTotalAmount) {
+                      setConfirmAction({ title: 'Đóng mà không lưu?', message: 'Bạn có thay đổi chưa lưu. Dữ liệu sẽ bị mất nếu đóng.', onConfirm: () => { setConfirmAction(null); setShowCreateModal(false); setEditingQuotation(null); } });
+                    } else { setShowCreateModal(false); setEditingQuotation(null); }
+                  }}
                   className="px-4 py-2 text-sm font-medium rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
                 >
                   Hủy

@@ -318,6 +318,7 @@ export default function SupportTrackingPage() {
   const chatEverConnectedRef = useRef(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [attachmentUrlByFileId, setAttachmentUrlByFileId] = useState<Record<string, string>>({});
   const [urlRefreshTick, setUrlRefreshTick] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -1228,6 +1229,7 @@ export default function SupportTrackingPage() {
 
     const isImage = file.type.startsWith('image/');
     setUploadingAttachment(true);
+    setUploadProgress(0);
     try {
       // Step 1: Get presigned upload URL from backend
       // Sale/Tech/Admin (system users) do NOT send organization_id for file/image uploads
@@ -1250,13 +1252,19 @@ export default function SupportTrackingPage() {
       const uploadUrl = String(getUrlJson.upload_url);
       const fileId = String(getUrlJson.file_id);
 
-      // Step 2: Upload file directly to S3 using the presigned URL
-      const s3Res = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
-        body: file,
+      // Step 2: Upload file directly to S3 using the presigned URL (XHR for progress tracking)
+      const s3Ok = await new Promise<boolean>((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () => { setUploadProgress(100); resolve(xhr.status >= 200 && xhr.status < 300); };
+        xhr.onerror = () => resolve(false);
+        xhr.send(file);
       });
-      if (!s3Res.ok) {
+      if (!s3Ok) {
         setFlowMessage('Upload tệp lên storage thất bại.');
         addToast('Upload tệp lên storage thất bại', { type: 'error' });
         return;
@@ -1331,6 +1339,7 @@ export default function SupportTrackingPage() {
       addToast('Lỗi mạng khi gửi tệp', { type: 'error' });
     } finally {
       setUploadingAttachment(false);
+      setUploadProgress(0);
     }
   };
 
@@ -1869,7 +1878,7 @@ export default function SupportTrackingPage() {
   return (
     <div className="flex h-[calc(100vh-theme(spacing.6))] gap-6 p-6">
       {/* Left Pane: Active Tickets List */}
-      <div className="w-[400px] flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden shrink-0">
+      <div className="w-[280px] sm:w-[340px] lg:w-[400px] flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden shrink-0">
         <div className="p-4 border-b border-gray-100">
             <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-gray-900">Active Tickets</h2>
@@ -1968,7 +1977,7 @@ export default function SupportTrackingPage() {
       </div>
 
       {/* Right Pane: Ticket Detail & Chat */}
-      {selectedTicket && (
+      {selectedTicket ? (
         <div className="flex-1 min-h-0 flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             {/* Header */}
             <div className="p-6 border-b border-gray-100 flex items-start justify-between">
@@ -2200,6 +2209,20 @@ export default function SupportTrackingPage() {
                   Chọn một ticket để bắt đầu hội thoại
                 </p>
               )}
+              {uploadingAttachment && (
+                <div className="mb-2">
+                  <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                    <span>Đang tải file...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5">
+                    <div
+                      className="bg-blue-500 h-1.5 rounded-full transition-all duration-200"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
               <div className={`flex items-center gap-2 bg-white border rounded-full px-4 py-2 transition-all shadow-sm ${chatRoomId ? 'border-gray-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent' : 'border-gray-100 opacity-60'}`}>
                 <button
                   onClick={() => fileInputRef.current?.click()}
@@ -2240,6 +2263,24 @@ export default function SupportTrackingPage() {
                 </button>
               </div>
             </div>
+        </div>
+      ) : (
+        /* Empty state when no ticket is selected */
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center bg-white rounded-xl shadow-sm border border-gray-200 gap-5 p-8">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center">
+            <SendHorizontal className="w-8 h-8 text-blue-400" />
+          </div>
+          <div className="text-center">
+            <h3 className="text-base font-semibold text-gray-800 mb-1">Chọn ticket để bắt đầu</h3>
+            <p className="text-sm text-gray-400 max-w-xs">Chọn một ticket từ danh sách bên trái hoặc tạo ticket mới để hỗ trợ khách hàng.</p>
+          </div>
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 transition-colors shadow-sm text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            Tạo ticket mới
+          </button>
         </div>
       )}
 

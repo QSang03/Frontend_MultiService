@@ -10,7 +10,10 @@ import {
   ArrowUpRight,
   BadgeDollarSign,
   Ban,
+  Check,
   Clock,
+  Copy,
+  Download,
   DollarSign,
   Info,
   LoaderCircle,
@@ -120,6 +123,16 @@ function formatCurrency(amount: number): string {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 }
 
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Vừa xong';
+  if (mins < 60) return `${mins} phút trước`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} giờ trước`;
+  return `${Math.floor(hours / 24)} ngày trước`;
+}
+
 function formatDate(value?: string): string {
   if (!value) return 'N/A';
   const date = new Date(value);
@@ -148,6 +161,8 @@ function resolveTierProgress(currentTier: string | undefined, ytdProfit: number)
     return {
       label: `${tier.label} đạt mức cao nhất`,
       progress: 100,
+      currentAmount: ytdProfit,
+      tierTarget: tier.minProfit,
     };
   }
 
@@ -159,6 +174,8 @@ function resolveTierProgress(currentTier: string | undefined, ytdProfit: number)
   return {
     label: `Cần thêm ${formatCurrency(remaining)} profit để lên ${tier.label === 'Tier 1' ? 'Tier 2 (15%)' : 'Tier 3 (20%)'}`,
     progress,
+    currentAmount: ytdProfit,
+    tierTarget: nextProfit,
   };
 }
 
@@ -334,6 +351,25 @@ function CommissionsPageContent() {
   const [clawbackError, setClawbackError] = useState('');
   const [payoutSectionError, setPayoutSectionError] = useState('');
   const [lastUpdatedAt, setLastUpdatedAt] = useState('');
+  const [copiedId, setCopiedId] = useState('');
+
+  const copyToClipboard = useCallback((text: string) => {
+    const doFallback = () => {
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(doFallback);
+    } else {
+      doFallback();
+    }
+    setCopiedId(text);
+    setTimeout(() => setCopiedId((prev) => (prev === text ? '' : prev)), 1500);
+  }, []);
 
 
   const updateSearchParams = useCallback((updates: Record<string, string | string[] | null>) => {
@@ -854,6 +890,28 @@ function CommissionsPageContent() {
     };
   }, [addToast, closeDetailState, searchParams, selectedCommissionDetail?.id, updateSearchParams]);
 
+  const exportCommissionsCSV = useCallback(() => {
+    const headers = ['ID', 'Target Type', 'Target ID', 'Net Profit Base', 'Rate', 'Amount', 'Status', 'Ngày ghi nhận'];
+    const csvRows = [
+      headers.join(','),
+      ...filteredCommissions.map(item => [
+        item.id,
+        item.targetType ?? '',
+        item.targetId ?? '',
+        item.baseProfit ?? '',
+        item.rateApplied ?? '',
+        item.amount ?? '',
+        item.status ?? '',
+        item.createdAt ? new Date(item.createdAt).toLocaleDateString('vi-VN') : '',
+      ].join(',')),
+    ].join('\n');
+    const blob = new Blob(['\uFEFF' + csvRows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `commissions_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  }, [filteredCommissions]);
+
   const getStatusBadge = (status?: string) => {
     const normalized = String(status ?? '').toUpperCase();
     if (normalized === 'AVAILABLE') {
@@ -928,7 +986,7 @@ function CommissionsPageContent() {
               Theo dõi profit, khoản đang chờ đối soát, payout và clawback trên cùng một màn hình. Bộ lọc hỗ trợ đa chọn, giữ trạng thái khi reload và sync giữa các tab.
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-blue-100/80">
-              <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1">Lần cập nhật gần nhất: {lastUpdatedAt ? formatDate(lastUpdatedAt) : 'Đang tải...'}</span>
+              <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1">Lần cập nhật: {lastUpdatedAt ? relativeTime(lastUpdatedAt) : 'Đang tải...'}</span>
               <a href="#how-it-works" className="rounded-full border border-white/10 bg-white/10 px-3 py-1 transition-colors hover:bg-white/20">Xem FAQ nhanh</a>
             </div>
           </div>
@@ -1018,7 +1076,7 @@ function CommissionsPageContent() {
           </div>
           <p className="mt-3 text-xl font-bold text-gray-900">{statsLoading ? '...' : normalizeTierLabel(stats?.currentTier)}</p>
           <div className="mt-4 h-2 rounded-full bg-gray-100">
-            <div className="h-2 rounded-full bg-blue-600" style={{ width: `${tierProgress.progress}%` }} />
+            <div className="h-2 rounded-full bg-blue-600" style={{ width: `${tierProgress.progress}%` }} title={`${tierProgress.currentAmount.toLocaleString('vi-VN')} ₫ / ${tierProgress.tierTarget.toLocaleString('vi-VN')} ₫`} />
           </div>
           <p className="mt-2 text-xs font-medium text-blue-600">{statsLoading ? 'Đang tải tiến độ tier...' : tierProgress.label}</p>
         </div>
@@ -1055,6 +1113,19 @@ function CommissionsPageContent() {
                 );
               })}
             </div>
+            {(selectedCommissionStatuses.length > 0 || selectedPayoutStatuses.length > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  updateSearchParams({ commissionStatus: null, payoutStatus: null });
+                  setSelectedCommissionStatuses([]);
+                  setSelectedPayoutStatuses([]);
+                }}
+                className="mt-2 text-xs text-red-500 hover:text-red-700 font-medium"
+              >
+                Xóa bộ lọc
+              </button>
+            )}
           </div>
           {payoutSectionError ? (
             <div className="mx-6 mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -1097,7 +1168,17 @@ function CommissionsPageContent() {
                       className="cursor-pointer transition-colors hover:bg-slate-50/80 focus:bg-slate-50 focus:outline-none"
                     >
                       <td className="px-6 py-4 align-top">
-                        <p className="font-medium text-gray-900">{item.id}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-gray-900">{item.id.slice(0, 8)}…</p>
+                          <button
+                            type="button"
+                            title="Sao chép ID"
+                            onClick={(e) => { e.stopPropagation(); copyToClipboard(item.id); }}
+                            className="text-gray-400 hover:text-gray-600 flex-shrink-0"
+                          >
+                            {copiedId === item.id ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
                         {item.rejectionReason ? <p className="mt-1 text-xs text-rose-600">Lý do từ chối: {item.rejectionReason}</p> : null}
                         {item.proofImageUrl ? <a href={item.proofImageUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex text-xs text-blue-600 hover:underline">Xem chứng từ thanh toán</a> : null}
                       </td>
@@ -1197,7 +1278,13 @@ function CommissionsPageContent() {
               <h3 className="font-bold text-gray-900">Commission History</h3>
               <p className="mt-1 text-sm text-gray-500">Liên kết trực tiếp theo Ticket ID hoặc Contract ID. Click vào row để mở detail nhanh.</p>
             </div>
-            <div className="text-sm text-gray-500">Hiển thị <span className="font-semibold text-gray-900">{filteredCommissions.length}</span> / {commissions.length} đã tải • tổng backend {commissionTotalCount}</div>
+            <div className="text-sm text-gray-500 flex items-center gap-3">
+              <span>Hiển thị <span className="font-semibold text-gray-900">{filteredCommissions.length}</span> / {commissions.length} đã tải • tổng backend {commissionTotalCount}</span>
+              <button onClick={exportCommissionsCSV} title="Xuất CSV" className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors">
+                <Download className="h-3 w-3" />
+                CSV
+              </button>
+            </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {STATUS_FILTERS.map((item) => {
@@ -1219,6 +1306,19 @@ function CommissionsPageContent() {
               );
             })}
           </div>
+          {(selectedCommissionStatuses.length > 0 || selectedPayoutStatuses.length > 0) && (
+            <button
+              type="button"
+              onClick={() => {
+                updateSearchParams({ commissionStatus: null, payoutStatus: null });
+                setSelectedCommissionStatuses([]);
+                setSelectedPayoutStatuses([]);
+              }}
+              className="mt-2 text-xs text-red-500 hover:text-red-700 font-medium"
+            >
+              Xóa bộ lọc
+            </button>
+          )}
           {commissionError ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{commissionError}</div> : null}
         </div>
         <div className="hidden md:block">
@@ -1254,7 +1354,18 @@ function CommissionsPageContent() {
                       className="cursor-pointer transition-colors hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
                     >
                       <td className="px-6 py-4 align-top">
-                        <p className="font-medium text-gray-900">{item.targetType || 'Reference'}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-gray-900">{item.targetType || 'Reference'}</p>
+                          <button
+                            type="button"
+                            title="Sao chép ID"
+                            onClick={(e) => { e.stopPropagation(); copyToClipboard(item.id); }}
+                            className="text-gray-400 hover:text-gray-600 flex-shrink-0"
+                          >
+                            {copiedId === item.id ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                          </button>
+                        </div>
+                        <p className="font-mono text-[10px] text-gray-400">{item.id.slice(0, 8)}</p>
                         {targetHref ? (
                           <a href={targetHref} onClick={(event) => event.stopPropagation()} className="mt-1 inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 hover:underline">
                             {item.targetId || 'Open reference'}
