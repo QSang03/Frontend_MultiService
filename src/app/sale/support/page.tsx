@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, memo, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useRouter } from 'next/navigation';
 import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import { 
@@ -326,6 +327,7 @@ export default function SupportTrackingPage() {
   const [enableNewMessageSound, setEnableNewMessageSound] = useState(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const ticketListRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const previousChatLengthRef = useRef(0);
@@ -1453,6 +1455,13 @@ export default function SupportTrackingPage() {
     t.title.toLowerCase().includes(search.toLowerCase())
   );
 
+  const ticketVirtualizer = useVirtualizer({
+    count: filteredTickets.length,
+    getScrollElement: () => ticketListRef.current,
+    estimateSize: () => 122,
+    overscan: 3,
+  });
+
   const processedMessages = useMemo(() => {
     return chatMessages.map((msg) => {
       const attachment = parseAttachmentMeta(msg.metadata);
@@ -1913,56 +1922,66 @@ export default function SupportTrackingPage() {
             </div>
         </div>
         
-        <div className="flex-1 overflow-y-auto">
+        <div ref={ticketListRef} className="flex-1 overflow-y-auto">
             {loadingTickets && tickets.length === 0 ? (
               <div className="p-4 text-sm text-gray-500">Đang tải danh sách tickets...</div>
             ) : filteredTickets.length === 0 ? (
               <div className="p-4 text-sm text-gray-500">Chưa có ticket nào.</div>
-            ) : filteredTickets.map(ticket => (
-                <div 
-                    key={ticket.id}
-                onClick={() => handleSelectTicket(ticket)}
-                    className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                        selectedTicket?.id === ticket.id ? 'bg-blue-50/50 border-l-4 border-l-blue-600' : 'border-l-4 border-l-transparent'
-                    }`}
-                >
-                    <div className="flex justify-between items-start mb-1">
-                        <span className="font-bold text-gray-900 text-sm">{ticket.code}</span>
-                        <span className="text-xs text-gray-400">{ticket.date}</span>
-                    </div>
-                    <h3 className="font-medium text-gray-800 text-sm mb-1 truncate">{ticket.title}</h3>
-                    <p className="text-xs text-gray-500 mb-3">{ticket.client}</p>
-                    <div className="flex items-center justify-between">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
-                           ticket.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
-                           ticket.status === 'RESOLVED' ? 'bg-green-100 text-green-700' :
-                           ticket.status === 'AGREED' ? 'bg-indigo-100 text-indigo-700' :
-                           ticket.status === 'OPEN' ? 'bg-cyan-100 text-cyan-700' :
-                           ticket.status === 'DRAFT' ? 'bg-gray-100 text-gray-700 border border-gray-200' :
-                           'bg-gray-200 text-gray-700'
-                         }`}>
-                           {ticket.status}
-                         </span>
-                         {ticket.priority && (
-                             <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded border ${
-                                ticket.priority === 'Critical' ? 'text-red-600 bg-red-50 border-red-100' :
-                              ticket.priority === 'Urgent' ? 'text-rose-600 bg-rose-50 border-rose-100' :
-                                ticket.priority === 'High' ? 'text-orange-600 bg-orange-50 border-orange-100' :
-                                'text-gray-600 bg-gray-50 border-gray-200'
+            ) : (
+              <div style={{ height: ticketVirtualizer.getTotalSize(), position: 'relative' }}>
+                {ticketVirtualizer.getVirtualItems().map(virtualRow => {
+                  const ticket = filteredTickets[virtualRow.index];
+                  return (
+                    <div
+                        key={ticket.id}
+                        ref={ticketVirtualizer.measureElement}
+                        data-index={virtualRow.index}
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualRow.start}px)` }}
+                        onClick={() => handleSelectTicket(ticket)}
+                        className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
+                            selectedTicket?.id === ticket.id ? 'bg-blue-50/50 border-l-4 border-l-blue-600' : 'border-l-4 border-l-transparent'
+                        }`}
+                    >
+                        <div className="flex justify-between items-start mb-1">
+                            <span className="font-bold text-gray-900 text-sm">{ticket.code}</span>
+                            <span className="text-xs text-gray-400">{ticket.date}</span>
+                        </div>
+                        <h3 className="font-medium text-gray-800 text-sm mb-1 truncate">{ticket.title}</h3>
+                        <p className="text-xs text-gray-500 mb-3">{ticket.client}</p>
+                        <div className="flex items-center justify-between">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
+                               ticket.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
+                               ticket.status === 'RESOLVED' ? 'bg-green-100 text-green-700' :
+                               ticket.status === 'AGREED' ? 'bg-indigo-100 text-indigo-700' :
+                               ticket.status === 'OPEN' ? 'bg-cyan-100 text-cyan-700' :
+                               ticket.status === 'DRAFT' ? 'bg-gray-100 text-gray-700 border border-gray-200' :
+                               'bg-gray-200 text-gray-700'
                              }`}>
-                                 {ticket.priority === 'Critical' && <Clock className="w-3 h-3" />}
-                                 {ticket.priority}
+                               {ticket.status}
                              </span>
-                         )}
-                         {ticket.slaStatus === 'Met' && (
-                             <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">
-                                 <CheckCircle2 className="w-3 h-3" />
-                                 SLA Met
-                             </span>
-                         )}
+                             {ticket.priority && (
+                                 <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded border ${
+                                    ticket.priority === 'Critical' ? 'text-red-600 bg-red-50 border-red-100' :
+                                  ticket.priority === 'Urgent' ? 'text-rose-600 bg-rose-50 border-rose-100' :
+                                    ticket.priority === 'High' ? 'text-orange-600 bg-orange-50 border-orange-100' :
+                                    'text-gray-600 bg-gray-50 border-gray-200'
+                                 }`}>
+                                     {ticket.priority === 'Critical' && <Clock className="w-3 h-3" />}
+                                     {ticket.priority}
+                                 </span>
+                             )}
+                             {ticket.slaStatus === 'Met' && (
+                                 <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">
+                                     <CheckCircle2 className="w-3 h-3" />
+                                     SLA Met
+                                 </span>
+                             )}
+                        </div>
                     </div>
-                </div>
-            ))}
+                  );
+                })}
+              </div>
+            )}
         </div>
 
         <div className="border-t border-gray-100 p-3 bg-white flex justify-center">
