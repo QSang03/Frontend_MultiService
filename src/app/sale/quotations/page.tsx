@@ -388,7 +388,7 @@ export default function SaleQuotationsPage() {
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [showCreateModal]);
+  }, [showCreateModal, quotationItemRows.length, quotationTotalAmount, selectedCustomerId]);
 
   // UC-9: Load real data on mount
   useEffect(() => {
@@ -1094,7 +1094,7 @@ export default function SaleQuotationsPage() {
     const q = params.get('q'); if (q) { setPipelineSearchInput(q); }
     const status = params.get('status'); if (status) { const n = Number(status); setPipelineStatusFilter(isNaN(n) ? 'all' : n as number | 'all'); }
     const page = params.get('page'); if (page) { const n = Number(page); if (n > 0) setCurrentPage(n); }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Reset to page 1 when filter/search changes
   useEffect(() => { setCurrentPage(1); }, [pipelineStatusFilter, pipelineSearchQuery]);

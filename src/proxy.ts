@@ -10,6 +10,18 @@ export function getAllowedPortals(role?: string): string[] {
   if (!role) return ['/admin', '/sale', '/tech'];
   const r = role.toUpperCase();
   
+  // USER_ROLE_CUSTOMER = 1
+  if (r.includes('CUSTOMER') || r === '1') {
+    return ['/customer/b2c'];
+  }
+  // USER_ROLE_ORG_ADMIN = 2
+  if (r.includes('ORG_ADMIN') || r === '2') {
+    return ['/customer/b2b'];
+  }
+  // USER_ROLE_MEMBER = 4
+  if (r.includes('MEMBER') || r === '4') {
+    return ['/customer/b2b'];
+  }
   // USER_ROLE_ADMIN = 8
   if (r.includes('ADMIN') || r === '8') {
     return ['/admin', '/sale', '/tech'];
@@ -22,8 +34,8 @@ export function getAllowedPortals(role?: string): string[] {
   if (r.includes('TECH') || r === '6' || r === '7') {
     return ['/tech'];
   }
-  // USER_ROLE_MANAGER = 3, USER_ROLE_MEMBER = 4, USER_ROLE_ORG_ADMIN = 2
-  if (r === '2' || r === '3' || r === '4' || r.includes('MANAGER') || r.includes('MEMBER')) {
+  // USER_ROLE_MANAGER = 3
+  if (r === '3' || r.includes('MANAGER')) {
     return ['/admin'];
   }
   return [];
@@ -32,10 +44,13 @@ export function getAllowedPortals(role?: string): string[] {
 export function getRoleDashboard(role?: string): string {
   if (!role) return '/admin/dashboard';
   const r = role.toUpperCase();
+  if (r.includes('CUSTOMER') || r === '1') return '/customer/b2c/dashboard';
+  if (r.includes('ORG_ADMIN') || r === '2') return '/customer/b2b/dashboard';
+  if (r.includes('MEMBER') || r === '4') return '/customer/b2b/dashboard';
   if (r.includes('ADMIN') || r === '8') return '/admin/dashboard';
   if (r.includes('SALE') || r === '5') return '/sale/dashboard';
   if (r.includes('TECH') || r === '6' || r === '7') return '/tech/dashboard';
-  if (r === '2' || r === '3' || r === '4') return '/admin/dashboard';
+  if (r === '3' || r.includes('MANAGER')) return '/admin/dashboard';
   return '/';
 }
 
@@ -44,6 +59,7 @@ export async function proxy(request: NextRequest) {
 
   // Define public paths that don't require authentication
   const publicPaths = [
+    '/',
     '/login',
     '/register',
     '/verify-email',
@@ -53,10 +69,16 @@ export async function proxy(request: NextRequest) {
     '/api/auth/reset',
     '/api/auth/refresh',
     '/api/auth/login',
+    '/api/sale/crm/create-guest',
+    '/api/sale/crm/send-account-otp',
+    '/api/sale/crm/verify-account-otp',
+    '/api/sale/crm/convert-guest-to-customer',
+    '/api/sale/tickets',
+    '/api/admin/catalog/categories',
   ];
   
   // Check if current path is public or is a static asset/image
-  const isPublicPath = publicPaths.some(path => pathname.startsWith(path));
+  const isPublicPath = pathname === '/' || publicPaths.some(path => path !== '/' && pathname.startsWith(path));
   const isStaticAsset = pathname.includes('.') || pathname.startsWith('/_next');
 
   if (isPublicPath || isStaticAsset) {

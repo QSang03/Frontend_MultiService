@@ -169,6 +169,56 @@ export async function protoCreateTicket(payload: {
   }
 }
 
+// Guest ticket creation — uses public transport (no auth token)
+export async function protoGuestCreateTicket(payload: {
+  guestToken: string;
+  categoryId: string;
+  serviceId?: string;
+  title: string;
+  description: string;
+  priority: string | number;
+  attributes: string;
+  assetId?: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available.' };
+  }
+
+  try {
+    // Transport with guest token as Bearer auth
+    const guestTransport = createGrpcTransport({
+      baseUrl: BACKEND_URL,
+      interceptors: [
+        (next) => async (req) => {
+          if (payload.guestToken) {
+            req.header.set('Authorization', `Bearer ${payload.guestToken}`);
+          }
+          return next(req);
+        },
+      ],
+    });
+    const client = createClient(mod.TicketService as unknown as DescService, guestTransport) as unknown;
+    type RpcMethod = (req: unknown) => Promise<unknown>;
+    const methods = client as Record<string, RpcMethod>;
+
+    const request = create(mod.CreateTicketRequestSchema as unknown as DescMessage, {
+      categoryId: payload.categoryId,
+      serviceId: payload.serviceId,
+      title: payload.title,
+      description: payload.description,
+      priority: mapPriorityToProto(payload.priority),
+      attributes: payload.attributes,
+      assetId: payload.assetId,
+    });
+    const response = await methods.createTicket(request as unknown);
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Guest create ticket failed';
+    return { success: false, error: message };
+  }
+}
+
 export async function protoPreviewSLA(payload: {
   categoryId: string;
   serviceId?: string;
@@ -595,6 +645,56 @@ export async function protoListTicketActivities(payload: {
     return { success: true, response };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'List ticket activities failed';
+    return { success: false, error: message };
+  }
+}
+
+// GetTicketLiveLocation (server-stream for real-time tracking)
+export async function protoGetTicketLiveLocation(payload: {
+  ticketId: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available.' };
+  }
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.GetTicketLiveLocationRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).getTicketLiveLocation(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get ticket live location failed';
+    return { success: false, error: message };
+  }
+}
+
+// UpgradeTicketSLA (boost priority)
+export async function protoUpgradeTicketSLA(payload: {
+  ticketId: string;
+  tier: number;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) {
+    return { success: false, error: 'TicketService proto module not yet available.' };
+  }
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.UpgradeTicketSLARequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        tier: payload.tier,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).upgradeTicketSLA(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Upgrade ticket SLA failed';
     return { success: false, error: message };
   }
 }

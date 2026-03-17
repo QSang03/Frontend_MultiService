@@ -14,7 +14,7 @@
     "proto:sync:watch": "node scripts/sync-proto.js --watch"
   },
   "dependencies": {
-    "@buf/nkc_multiservice.bufbuild_es": "^2.11.0-20260314082324-2a5c6c1e1009.1",
+    "@buf/nkc_multiservice.bufbuild_es": "^2.11.0-20260316101437-a7eece7d9a02.1",
     "@bufbuild/protobuf": "^2.11.0",
     "@connectrpc/connect": "^2.1.1",
     "@connectrpc/connect-node": "^2.1.1",

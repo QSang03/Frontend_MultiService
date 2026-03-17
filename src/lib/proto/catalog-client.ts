@@ -386,3 +386,30 @@ export async function protoListServices(params?: {
     return { success: false, error: message };
   }
 }
+
+// Public (no auth) version — for landing page / guest checkout
+export async function protoPublicListCategories(params?: {
+  pageSize?: number;
+  pageToken?: string;
+  parentId?: string;
+  hasServices?: boolean;
+  showApproved?: boolean;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  try {
+    const publicTransport = createGrpcTransport({ baseUrl: BACKEND_URL });
+    const client = createClient(CatalogService as unknown as DescService, publicTransport) as unknown;
+    const request = create(ListCategoriesRequestSchema as unknown as DescMessage, {
+      pageSize: params?.pageSize ?? 50,
+      pageToken: params?.pageToken ?? '',
+      parentId: params?.parentId,
+      hasServices: params?.hasServices,
+      showApproved: params?.showApproved,
+    });
+    type RpcMethod = (req: unknown) => Promise<unknown>;
+    const response = await (client as Record<string, RpcMethod>).listCategories(request as unknown);
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Public list categories failed';
+    return { success: false, error: message };
+  }
+}
