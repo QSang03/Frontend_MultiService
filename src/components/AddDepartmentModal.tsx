@@ -43,6 +43,7 @@ export default function AddDepartmentModal({ open, onClose, onCreated, departmen
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
+          
           code: code.trim(),
           description: description.trim() || undefined,
           parent_id: parentId || undefined,

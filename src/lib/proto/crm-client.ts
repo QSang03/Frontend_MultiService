@@ -78,14 +78,23 @@ async function createAuthenticatedCrmClient() {
   return createClient(CrmService, authTransport);
 }
 
+function createPublicCrmClient() {
+  const transport = createGrpcTransport({
+    baseUrl: BACKEND_URL,
+  });
+  return createClient(CrmService, transport);
+}
+
 export async function protoSearchCustomerLead(payload: {
-  searchTerm: string;
+  query: string;
+  limit?: number;
 }): Promise<{ success: boolean; response?: SearchCustomerLeadResponse; error?: string }> {
   try {
     const response = await executeWithRefresh(async () => {
       const client = await createAuthenticatedCrmClient();
       const request = create(SearchCustomerLeadRequestSchema, {
-        searchTerm: payload.searchTerm,
+        query: payload.query,
+        limit: payload.limit ?? 10,
       });
       return await client.searchCustomerLead(request);
     });
@@ -102,16 +111,13 @@ export async function protoCreateGuest(payload: {
   fullName?: string;
 }): Promise<{ success: boolean; response?: CreateGuestResponse; error?: string }> {
   try {
-    const response = await executeWithRefresh(async () => {
-      const client = await createAuthenticatedCrmClient();
-      const request = create(CreateGuestRequestSchema, {
-        email: payload.email,
-        phone: payload.phone,
-        fullName: payload.fullName,
-      });
-      return await client.createGuest(request);
+    const client = createPublicCrmClient();
+    const request = create(CreateGuestRequestSchema, {
+      email: payload.email,
+      phone: payload.phone,
+      fullName: payload.fullName,
     });
-
+    const response = await client.createGuest(request);
     return { success: true, response };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'CreateGuest failed' };
@@ -123,15 +129,12 @@ export async function protoSendAccountOtp(payload: {
   channel: OtpChannel;
 }): Promise<{ success: boolean; response?: SendAccountOtpResponse; error?: string }> {
   try {
-    const response = await executeWithRefresh(async () => {
-      const client = await createAuthenticatedCrmClient();
-      const request = create(SendAccountOtpRequestSchema, {
-        userId: payload.userId,
-        channel: payload.channel,
-      });
-      return await client.sendAccountOtp(request);
+    const client = createPublicCrmClient();
+    const request = create(SendAccountOtpRequestSchema, {
+      userId: payload.userId,
+      channel: payload.channel,
     });
-
+    const response = await client.sendAccountOtp(request);
     return { success: true, response };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'SendAccountOtp failed' };
@@ -143,15 +146,12 @@ export async function protoVerifyAccountOtp(payload: {
   code: string;
 }): Promise<{ success: boolean; response?: VerifyAccountOtpResponse; error?: string }> {
   try {
-    const response = await executeWithRefresh(async () => {
-      const client = await createAuthenticatedCrmClient();
-      const request = create(VerifyAccountOtpRequestSchema, {
-        userId: payload.userId,
-        code: payload.code,
-      });
-      return await client.verifyAccountOtp(request);
+    const client = createPublicCrmClient();
+    const request = create(VerifyAccountOtpRequestSchema, {
+      userId: payload.userId,
+      code: payload.code,
     });
-
+    const response = await client.verifyAccountOtp(request);
     return { success: true, response };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'VerifyAccountOtp failed' };
@@ -163,15 +163,12 @@ export async function protoConvertGuestToCustomer(payload: {
   verifiedToken: string;
 }): Promise<{ success: boolean; response?: ConvertGuestToCustomerResponse; error?: string }> {
   try {
-    const response = await executeWithRefresh(async () => {
-      const client = await createAuthenticatedCrmClient();
-      const request = create(ConvertGuestToCustomerRequestSchema, {
-        guestId: payload.guestId,
-        verifiedToken: payload.verifiedToken,
-      });
-      return await client.convertGuestToCustomer(request);
+    const client = createPublicCrmClient();
+    const request = create(ConvertGuestToCustomerRequestSchema, {
+      guestId: payload.guestId,
+      verifiedToken: payload.verifiedToken,
     });
-
+    const response = await client.convertGuestToCustomer(request);
     return { success: true, response };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : 'ConvertGuestToCustomer failed' };

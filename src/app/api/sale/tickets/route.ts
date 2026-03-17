@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { protoCreateTicket, protoListTickets, protoUpdateTicketStatus } from '@/lib/proto/ticket-client';
+import { protoCreateTicket, protoListTickets, protoUpdateTicketStatus, protoGuestCreateTicket } from '@/lib/proto/ticket-client';
 
 type TicketDto = {
   id: string;
@@ -134,6 +134,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const guestToken = req.headers.get('x-guest-token');
   const body = await req.json();
   const customerId = body.customer_id ?? body.customerId ?? body.owner_id ?? body.ownerId;
   const categoryId = body.category_id ?? body.categoryId;
@@ -144,13 +145,41 @@ export async function POST(req: Request) {
   const attributes = body.attributes ?? '{}';
   const assetId = body.asset_id ?? body.assetId;
 
-  if (!customerId || !categoryId || !title) {
-    return NextResponse.json({ error: 'customer_id, category_id and title are required' }, { status: 400 });
+  if (!title) {
+    return NextResponse.json({ error: 'title is required' }, { status: 400 });
+  }
+
+  // Guest Token flow: dùng CreateTicket với guest token làm Bearer
+  // TODO: Khi BE có API Guest Token chính thức, verify flow end-to-end
+  if (guestToken) {
+    const result = await protoGuestCreateTicket({
+      guestToken,
+      categoryId: String(categoryId || 'other'),
+      serviceId: serviceId ? String(serviceId) : undefined,
+      title: String(title),
+      description: String(description),
+      priority: mapPriorityToProto(priority),
+      attributes: typeof attributes === 'string' ? attributes : JSON.stringify(attributes),
+      assetId: assetId ? String(assetId) : undefined,
+    });
+
+    if (!result.success || !result.response) {
+      return NextResponse.json({ error: result.error || 'Failed to create ticket' }, { status: 500 });
+    }
+
+    const resp = result.response as Record<string, unknown>;
+    const ticket = normalizeTicket(resp.ticket);
+    return NextResponse.json({ ticket }, { status: 201 });
+  }
+
+  // Authenticated flow (logged-in users)
+  if (!customerId) {
+    return NextResponse.json({ error: 'customer_id and title are required' }, { status: 400 });
   }
 
   const result = await protoCreateTicket({
     customerId: String(customerId),
-    categoryId: String(categoryId),
+    categoryId: String(categoryId || 'other'),
     serviceId: serviceId ? String(serviceId) : undefined,
     title: String(title),
     description: String(description),

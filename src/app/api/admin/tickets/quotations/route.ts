@@ -4,6 +4,7 @@ import {
   protoAcceptQuotation,
   protoRejectQuotation,
 } from '@/lib/proto/ticket-client';
+import { protoListQuotations } from '@/lib/proto/quotation-client';
 
 export type QuotationDto = {
   id: string;
@@ -46,9 +47,19 @@ function normalizeQuotation(s: unknown): QuotationDto {
   const taxAmount = obj.taxAmount ?? obj.tax_amount;
   const currency = obj.currency;
   const note = obj.note;
-  const isAccepted = obj.isAccepted ?? obj.is_accepted;
   const items = obj.items;
   const createdAt = timestampToIso(obj.createdAt ?? obj.created_at);
+
+  // Determine isAccepted from either TicketQuotation.is_accepted (bool) or QuotationService.status (enum)
+  // QuotationStatus: DRAFT=1, SENT=2, REVIEWED=3, ACCEPTED=4, REJECTED=5
+  const status = Number(obj.status ?? 0);
+  const isAcceptedRaw = obj.isAccepted ?? obj.is_accepted;
+  let isAccepted: boolean | undefined;
+  if (status === 4) isAccepted = true;
+  else if (status === 5) isAccepted = false;
+  else if (isAcceptedRaw === true) isAccepted = true;
+  else if (isAcceptedRaw != null && status > 0) isAccepted = undefined; // pending
+  else isAccepted = undefined;
 
   return {
     id,
@@ -58,10 +69,32 @@ function normalizeQuotation(s: unknown): QuotationDto {
     taxAmount: taxAmount == null ? undefined : String(taxAmount),
     currency: currency == null ? undefined : String(currency),
     note: note == null ? undefined : String(note),
-    isAccepted: isAccepted == null ? undefined : Boolean(isAccepted),
+    isAccepted,
     items: items == null ? undefined : String(items),
     createdAt,
   };
+}
+
+// GET - List quotations (filter by ticket_id on client side)
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const ticketId = String(searchParams.get('ticket_id') ?? '').trim();
+
+  const result = await protoListQuotations({ pageSize: 100 });
+  if (!result.success || !result.response) {
+    return NextResponse.json({ error: result.error || 'Failed to list quotations' }, { status: 500 });
+  }
+
+  const resp = result.response as Record<string, unknown>;
+  const quotationsRaw = Array.isArray(resp.quotations) ? resp.quotations : [];
+  const quotations = quotationsRaw.map((q) => normalizeQuotation(q));
+
+  if (ticketId) {
+    const match = quotations.find((q) => q.ticketId === ticketId);
+    return NextResponse.json({ quotation: match ?? null });
+  }
+
+  return NextResponse.json({ quotations });
 }
 
 // POST - Submit a new quotation

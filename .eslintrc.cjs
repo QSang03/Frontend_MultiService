@@ -1,4 +1,4 @@
-module.exports = {
+﻿module.exports = {
   root: true,
   extends: [
     "next/core-web-vitals",
@@ -9,5 +9,9 @@ module.exports = {
     "out/**",
     "build/**",
     "next-env.d.ts"
-  ]
+  ],
+  rules: {
+    "@typescript-eslint/no-unused-vars": "off",
+    "@typescript-eslint/no-require-imports": "off"
+  }
 };

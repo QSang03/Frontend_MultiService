@@ -6,7 +6,7 @@ import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import { TopHeader } from '@/components/layout';
 import { 
   Search, AlertTriangle, MessageSquare, Clock, FileText, 
-  Lock, RefreshCw, Loader2, UserPlus, DollarSign, CheckCircle, XCircle 
+  Lock, RefreshCw, Loader2, UserPlus, DollarSign, Sparkles, CheckCircle, XCircle 
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { 
@@ -19,6 +19,7 @@ import {
 } from '@/types/ticket';
 import SubmitQuotationModal from '@/components/SubmitQuotationModal';
 import AssignTicketModal from '@/components/AssignTicketModal';
+import SmartDispatchModal from '@/components/SmartDispatchModal';
 
 interface ChatMessage {
   id: string;
@@ -228,6 +229,7 @@ export default function TicketMonitorPage() {
   // Modals
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
+  const [showSmartDispatchModal, setShowSmartDispatchModal] = useState(false);
 
   // Action loading states
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -811,6 +813,16 @@ export default function TicketMonitorPage() {
                           <UserPlus className="w-4 h-4" />
                           Assign
                         </button>
+
+                        {/* Smart Dispatch button (SRS III.1.A) */}
+                        <button
+                          onClick={() => setShowSmartDispatchModal(true)}
+                          className="px-3 py-1.5 text-sm font-medium text-purple-600 bg-purple-50 border border-purple-200 rounded-lg hover:bg-purple-100 flex items-center gap-1"
+                          title="Phân công tự động theo Skillset và Tải"
+                        >
+                          <Sparkles className="w-4 h-4 text-purple-600" />
+                          Smart Dispatch
+                        </button>
                         
                         {/* Quotation button */}
                         {[TicketStatus.TICKET_STATUS_OPEN, TicketStatus.TICKET_STATUS_QUOTING].includes(selectedTicket.status) && (
@@ -1206,7 +1218,22 @@ export default function TicketMonitorPage() {
         />
       )}
 
-      {/* Assign Ticket Modal */}
+      {/* Smart Dispatch Modal (SRS III.1.A) */}
+        {selectedTicket && (
+          <SmartDispatchModal
+            isOpen={showSmartDispatchModal}
+            ticketId={selectedTicket.id}
+            ticketTitle={selectedTicket.title}
+            onClose={() => setShowSmartDispatchModal(false)}
+            onAssignSuccess={(techId, techName) => {
+              setShowSmartDispatchModal(false);
+              toast.success(`Đã phân công thông minh cho ${techName || techId}`);
+              fetchTickets();
+            }}
+          />
+        )}
+
+        {/* Assign Ticket Modal */}
       {selectedTicket && (
         <AssignTicketModal
           isOpen={showAssignModal}

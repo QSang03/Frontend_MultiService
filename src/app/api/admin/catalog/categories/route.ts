@@ -4,6 +4,7 @@ import {
   protoGetCategory,
   protoListCategories,
   protoUpdateCategory,
+  protoPublicListCategories,
 } from '@/lib/proto/catalog-client';
 
 export type ServiceCategoryDto = {
@@ -74,6 +75,8 @@ export async function GET(req: Request) {
   const hasServices = hasServicesRaw == null ? undefined : hasServicesRaw === 'true';
   const showApproved = showApprovedRaw == null ? undefined : showApprovedRaw === 'true';
 
+  const publicMode = searchParams.get('public') === 'true';
+
   if (categoryId) {
     const result = await protoGetCategory({ categoryId });
     if (!result.success || !result.response) {
@@ -85,7 +88,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ category });
   }
 
-  const result = await protoListCategories({
+  const listFn = publicMode ? protoPublicListCategories : protoListCategories;
+  const result = await listFn({
     pageSize,
     pageToken,
     parentId,

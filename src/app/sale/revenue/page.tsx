@@ -1,7 +1,24 @@
-'use client';
+﻿'use client';
 
 import React, { useState } from 'react';
-import { Plus, Search, AlertCircle, CheckCircle2, Clock, DollarSign, TrendingUp, FileText, Loader2, X } from 'lucide-react';
+import { 
+  Plus, 
+  Search, 
+  AlertCircle, 
+  CheckCircle2, 
+  Clock, 
+  DollarSign, 
+  TrendingUp, 
+  FileText, 
+  Loader2, 
+  X,
+  Receipt,
+  Layers,
+  Sparkles,
+  Shield,
+  Calendar,
+  Check
+} from 'lucide-react';
 import CreateInvoiceModal from './CreateInvoiceModal';
 import { useToast } from '@/components/ui';
 import axiosInstance from '@/lib/axios';
@@ -14,26 +31,120 @@ interface Invoice {
   status: string;
 }
 
+interface NewTierCommission {
+  id: string;
+  contractNo: string;
+  client: string;
+  serviceType: string;
+  date: string;
+  baseProfit: number;
+  tier: string;
+  rate: number;
+  commission: number;
+  status: 'AVAILABLE' | 'PROVISIONAL';
+}
+
+interface RecurringCommission {
+  id: string;
+  contractNo: string;
+  client: string;
+  periodMonth: number;
+  billingCycle: string;
+  periodProfit: number;
+  retentionRate: number; // 5% standard fixed
+  commission: number;
+  status: 'AVAILABLE' | 'PROVISIONAL';
+}
+
 const INITIAL_INVOICES: Invoice[] = [
   { id: 'INV-2024-001', client: 'TechSolutions Ltd', amount: 50000000, dueDate: '2024-02-15', status: 'pending_verification' },
   { id: 'INV-2024-002', client: 'Nguyen Van A',      amount: 1500000,  dueDate: '2024-01-25', status: 'paid' },
   { id: 'INV-2024-003', client: 'StartUp Alpha',     amount: 12000000, dueDate: '2024-02-01', status: 'overdue' },
 ];
 
-const statusConfig: Record<string, { label: string; color: string; dot: string; icon: React.ReactNode }> = {
-  paid:                 { label: 'Đã thanh toán',    color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-400', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-  pending_verification: { label: 'Chờ xác nhận',     color: 'bg-amber-100 text-amber-700',    dot: 'bg-amber-400',   icon: <Clock        className="w-3.5 h-3.5" /> },
-  overdue:              { label: 'Quá hạn',           color: 'bg-red-100 text-red-700',        dot: 'bg-red-400',     icon: <AlertCircle  className="w-3.5 h-3.5" /> },
-};
-
-const filterTabs = [
-  { key: 'all',                 label: 'Tất cả' },
-  { key: 'pending_verification',label: 'Chờ xác nhận' },
-  { key: 'paid',                label: 'Đã thanh toán' },
-  { key: 'overdue',             label: 'Quá hạn' },
+const INITIAL_TIER_COMMISSIONS: NewTierCommission[] = [
+  {
+    id: 'COM-NEW-01',
+    contractNo: 'HD-2026-0089',
+    client: 'VinGroup SmartCity',
+    serviceType: 'Hạ tầng Mạng & Firewall Cisco',
+    date: '12/02/2026',
+    baseProfit: 45000000,
+    tier: 'Tier 2 (MTD ≥ 50tr)',
+    rate: 0.15,
+    commission: 6750000,
+    status: 'AVAILABLE',
+  },
+  {
+    id: 'COM-NEW-02',
+    contractNo: 'HD-2026-0104',
+    client: 'Tập đoàn Dược phẩm MegaMed',
+    serviceType: 'Triển khai Cụm Server ProLiant',
+    date: '18/02/2026',
+    baseProfit: 60000000,
+    tier: 'Tier 2 (MTD ≥ 50tr)',
+    rate: 0.15,
+    commission: 9000000,
+    status: 'AVAILABLE',
+  },
+  {
+    id: 'COM-NEW-03',
+    contractNo: 'HD-2026-0112',
+    client: 'Design Studio X',
+    serviceType: 'Nâng cấp Phòng Lab Đồ họa',
+    date: '24/02/2026',
+    baseProfit: 25000000,
+    tier: 'Tier 1 (Cơ bản)',
+    rate: 0.10,
+    commission: 2500000,
+    status: 'PROVISIONAL',
+  },
 ];
 
+const INITIAL_RECURRING_COMMISSIONS: RecurringCommission[] = [
+  {
+    id: 'COM-REC-01',
+    contractNo: 'HD-REC-2025-012',
+    client: 'TechCorp Enterprise',
+    periodMonth: 6,
+    billingCycle: 'Kỳ Tháng 02/2026',
+    periodProfit: 35000000,
+    retentionRate: 0.05,
+    commission: 1750000,
+    status: 'AVAILABLE',
+  },
+  {
+    id: 'COM-REC-02',
+    contractNo: 'HD-REC-2025-045',
+    client: 'Lawson Logistics Vietnam',
+    periodMonth: 4,
+    billingCycle: 'Kỳ Tháng 02/2026',
+    periodProfit: 50000000,
+    retentionRate: 0.05,
+    commission: 2500000,
+    status: 'AVAILABLE',
+  },
+  {
+    id: 'COM-REC-03',
+    contractNo: 'HD-REC-2025-089',
+    client: 'Chuỗi Bán Lẻ Retail Z',
+    periodMonth: 2,
+    billingCycle: 'Kỳ Tháng 02/2026',
+    periodProfit: 40000000,
+    retentionRate: 0.05,
+    commission: 2000000,
+    status: 'PROVISIONAL',
+  },
+];
+
+const statusConfig: Record<string, { label: string; color: string; dot: string; icon: React.ReactNode }> = {
+  paid:                 { label: 'Đã thanh toán',    color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-400', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  pending_verification: { label: 'Chờ xác nhận',     color: 'bg-amber-100 text-amber-700',    dot: 'bg-amber-400',   icon: <Clock className="w-3.5 h-3.5" /> },
+  overdue:              { label: 'Quá hạn',           color: 'bg-red-100 text-red-700',        dot: 'bg-red-400',     icon: <AlertCircle className="w-3.5 h-3.5" /> },
+};
+
 export default function RevenuePage() {
+  const [activeMainTab, setActiveMainTab] = useState<'invoices' | 'commissions'>('commissions');
   const [invoices, setInvoices] = useState(INITIAL_INVOICES);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,7 +152,6 @@ export default function RevenuePage() {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [reminderSendingId, setReminderSendingId] = useState<string | null>(null);
   const [reminderConfirmInv, setReminderConfirmInv] = useState<Invoice | null>(null);
-  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const { addToast } = useToast();
 
   const handleConfirmSlip = async (inv: Invoice) => {
@@ -91,236 +201,398 @@ export default function RevenuePage() {
   const overdueAmt  = invoices.filter(i => i.status === 'overdue').reduce((s, i) => s + i.amount, 0);
   const collectedAmt = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
 
+  // Calculations for Commissions tab
+  const totalTierComms = INITIAL_TIER_COMMISSIONS.reduce((s, c) => s + c.commission, 0);
+  const totalRecComms = INITIAL_RECURRING_COMMISSIONS.reduce((s, c) => s + c.commission, 0);
+  const carryForwardClawback = 2000000; // 2M carried forward due to 30% MTD cap
+  const netEarnings = totalTierComms + totalRecComms - carryForwardClawback;
   const kpis = [
-    { label: 'Chờ xác nhận',      value: fmt(pendingAmt),  sub: `${invoices.filter(i => i.status === 'pending_verification').length} hóa đơn`, gradient: 'from-amber-500 to-orange-500', icon: Clock },
-    { label: 'Nợ quá hạn',        value: fmt(overdueAmt),  sub: 'Cần xử lý ngay',   gradient: 'from-rose-500 to-red-600',      icon: AlertCircle },
-    { label: 'Đã thu tháng này',   value: fmt(collectedAmt),sub: 'Tiếp tục phát huy!', gradient: 'from-emerald-500 to-teal-600', icon: TrendingUp },
-    { label: 'Tổng hóa đơn',      value: String(invoices.length), sub: 'trong hệ thống', gradient: 'from-blue-500 to-indigo-600', icon: FileText },
+    { label: 'Chờ xác nhận', value: fmt(pendingAmt), sub: `${invoices.filter(i => i.status === 'pending_verification').length} hóa đơn`, gradient: 'from-amber-500 to-orange-500', icon: Clock },
+    { label: 'Nợ quá hạn', value: fmt(overdueAmt), sub: 'Cần xử lý ngay', gradient: 'from-rose-500 to-red-600', icon: AlertCircle },
+    { label: 'Đã thu tháng này', value: fmt(collectedAmt), sub: 'Tiếp tục phát huy!', gradient: 'from-emerald-500 to-teal-600', icon: TrendingUp },
+    { label: 'Tổng hóa đơn', value: String(invoices.length), sub: 'trong hệ thống', gradient: 'from-blue-500 to-indigo-600', icon: FileText },
   ];
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Top Main Navigation Tabs */}
+      <div className="flex items-center justify-between border-b border-gray-200 pb-3">
         <div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-transparent">
-            Thanh toán & Hóa đơn
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+            Doanh Thu & Hoa Hồng (SRS III.4)
           </h1>
-          <p className="text-gray-500 text-sm mt-1">Theo dõi thu tiền, xác nhận chuyển khoản và quản lý hóa đơn</p>
+          <p className="text-gray-500 text-sm mt-0.5">
+            Quản lý bảng kê hóa đơn và theo dõi chi tiết 2 cấu trúc hoa hồng: Gói mới (Tier) & Duy trì (Recurring).
+          </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium text-sm shadow-sm hover:shadow-md hover:from-blue-600 hover:to-indigo-700 transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          Tạo hóa đơn
-        </button>
+
+        <div className="flex bg-gray-100 p-1 rounded-xl">
+          <button
+            onClick={() => setActiveMainTab('commissions')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              activeMainTab === 'commissions'
+                ? 'bg-white text-blue-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            Hoa Hồng Doanh Số (SRS III.4)
+          </button>
+          <button
+            onClick={() => setActiveMainTab('invoices')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              activeMainTab === 'invoices'
+                ? 'bg-white text-blue-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            <Receipt className="w-4 h-4" />
+            Hóa Đơn & Thu Tiền
+          </button>
+        </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {kpis.map((k) => {
-          const Icon = k.icon;
-          return (
-            <div key={k.label} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center gap-4">
-              <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${k.gradient} flex items-center justify-center flex-shrink-0 shadow-sm`}>
-                <Icon className="w-5 h-5 text-white" />
+      {/* ================= COMMISSIONS TAB (SPRINT 3.2 REQUIREMENT) ================= */}
+      {activeMainTab === 'commissions' && (
+        <div className="space-y-6">
+          {/* KPI Cards for Commissions */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase text-gray-400">Hoa hồng Gói mới (Tier)</span>
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-lg font-bold text-gray-800 truncate">{k.value}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{k.label}</p>
-                <p className="text-xs text-gray-400">{k.sub}</p>
-              </div>
+              <p className="text-2xl font-bold text-gray-900">{fmt(totalTierComms)}</p>
+              <p className="text-xs text-blue-600 mt-1 font-medium">Lũy tiến: Tier 1 (10%) → Tier 3 (20%)</p>
             </div>
-          );
-        })}
-      </div>
 
-      {/* Filter tabs + search */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
-        <div className="flex flex-wrap gap-2">
-          {filterTabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setStatusFilter(tab.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                statusFilter === tab.key
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Tìm mã hóa đơn, khách hàng..."
-            className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-      </div>
+            <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase text-gray-400">Hoa hồng Duy trì (Recurring)</span>
+                <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                  <Layers className="w-4 h-4" />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-purple-700">{fmt(totalRecComms)}</p>
+              <p className="text-xs text-purple-600 mt-1 font-medium">Tỷ lệ cố định 5% từ Tháng thứ 2+</p>
+            </div>
 
-      {/* Table */}
-      <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50/80 border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Mã hóa đơn</th>
-                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Khách hàng</th>
-                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide text-right">Số tiền</th>
-                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Hạn thanh toán</th>
-                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide text-center">Trạng thái</th>
-                <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide text-right">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filtered.length > 0 ? (
-                filtered.map((inv) => {
-                  const cfg = statusConfig[inv.status] ?? { label: inv.status, color: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400', icon: <DollarSign className="w-3.5 h-3.5" /> };
-                  return (
-                    <tr key={inv.id} className="hover:bg-gray-50/60 transition-colors">
-                      <td className="px-6 py-4 font-mono text-xs font-medium text-gray-800">{inv.id}</td>
-                      <td className="px-6 py-4 text-gray-700">{inv.client}</td>
-                      <td className="px-6 py-4 text-right font-semibold text-gray-800">{fmt(inv.amount)}</td>
-                      <td className="px-6 py-4 text-gray-500 text-xs">{inv.dueDate}</td>
+            <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase text-gray-400">Nợ Truy thu Treo (30% Cap)</span>
+                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <Shield className="w-4 h-4" />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-amber-600">-{fmt(carryForwardClawback)}</p>
+              <p className="text-xs text-amber-700 mt-1 font-medium">Bảo vệ trần 30% MTD, chuyển kỳ sau</p>
+            </div>
+
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-5 text-white shadow-md">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold uppercase opacity-80">Thực lĩnh kỳ này</span>
+                <DollarSign className="w-5 h-5 opacity-90" />
+              </div>
+              <p className="text-2xl font-bold">{fmt(netEarnings)}</p>
+              <p className="text-xs opacity-80 mt-1">Dự kiến thanh toán ngày 25 hàng tháng</p>
+            </div>
+          </div>
+
+          {/* TABLE 1: NEW PACKAGE COMMISSIONS (TIER PERFORMANCE) */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/60">
+              <div>
+                <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-blue-600" />
+                  Bảng 1: Hoa Hồng Gói Mới / Dự Án Mới (Tier Performance Model)
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Áp dụng cho Hợp đồng ký mới và Tháng đầu tiên: Tỷ lệ hoa hồng nhảy bậc theo lũy kế lợi nhuận tháng (Tier 1: 10%, Tier 2: 15%, Tier 3: 20%).
+                </p>
+              </div>
+              <span className="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-semibold">
+                {INITIAL_TIER_COMMISSIONS.length} Hợp đồng
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50/80 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase">
+                  <tr>
+                    <th className="px-6 py-3.5">Mã Hợp Đồng</th>
+                    <th className="px-6 py-3.5">Khách Hàng</th>
+                    <th className="px-6 py-3.5">Dịch Vụ Triển Khai</th>
+                    <th className="px-6 py-3.5">Ngày Nghiệm Thu</th>
+                    <th className="px-6 py-3.5 text-right">Lợi Nhuận Ròng</th>
+                    <th className="px-6 py-3.5 text-center">Bậc Áp Dụng</th>
+                    <th className="px-6 py-3.5 text-right">Hoa Hồng</th>
+                    <th className="px-6 py-3.5 text-center">Trạng Thái</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {INITIAL_TIER_COMMISSIONS.map((item) => (
+                    <tr key={item.id} className="hover:bg-blue-50/20 transition-colors">
+                      <td className="px-6 py-4 font-mono text-xs font-bold text-blue-600">{item.contractNo}</td>
+                      <td className="px-6 py-4 font-medium text-gray-900">{item.client}</td>
+                      <td className="px-6 py-4 text-xs text-gray-600">{item.serviceType}</td>
+                      <td className="px-6 py-4 text-xs text-gray-500">{item.date}</td>
+                      <td className="px-6 py-4 text-right font-mono font-semibold text-gray-800">{fmt(item.baseProfit)}</td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${cfg.color}`}>
-                          {cfg.icon}
-                          {cfg.label}
+                        <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                          {item.tier} ({(item.rate * 100).toFixed(0)}%)
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        {inv.status === 'pending_verification' && (
-                          <button
-                            onClick={() => handleConfirmSlip(inv)}
-                            disabled={confirmingId === inv.id}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {confirmingId === inv.id && <Loader2 className="w-3 h-3 animate-spin" />}
-                            Xác nhận slip
-                          </button>
-                        )}
-                        {inv.status === 'overdue' && (
-                          <button
-                            onClick={() => handleSendReminder(inv)}
-                            disabled={reminderSendingId === inv.id}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {reminderSendingId === inv.id && <Loader2 className="w-3 h-3 animate-spin" />}
-                            Gửi nhắc nhở
-                          </button>
-                        )}
-                        {inv.status === 'paid' && (
-                          <button
-                            onClick={() => setSelectedInvoice(inv)}
-                            className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                          >
-                            Xem chi tiết
-                          </button>
-                        )}
+                      <td className="px-6 py-4 text-right font-mono font-bold text-green-600">{fmt(item.commission)}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          item.status === 'AVAILABLE' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {item.status === 'AVAILABLE' ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                          {item.status === 'AVAILABLE' ? 'Đã Chốt' : 'Tạm Tính'}
+                        </span>
                       </td>
                     </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={6} className="px-6 py-16 text-center">
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center">
-                        <FileText className="w-7 h-7 text-gray-300" />
-                      </div>
-                      <p className="text-gray-500 font-medium">Không tìm thấy hóa đơn</p>
-                      <p className="text-gray-400 text-xs">Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <CreateInvoiceModal
-        open={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        onSuccess={handleCreateSuccess}
-      />
-
-      {/* Reminder Confirm Modal */}
-      {reminderConfirmInv && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={() => setReminderConfirmInv(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <div className="p-5 text-center">
-              <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-3">
-                <AlertCircle className="w-6 h-6 text-orange-600" />
-              </div>
-              <h3 className="text-sm font-bold text-gray-900 mb-1">Gửi nhắc nhở thanh toán?</h3>
-              <p className="text-xs text-gray-500 mt-1">
-                Hệ thống sẽ gửi email nhắc nhở thanh toán đến <span className="font-semibold text-gray-700">{reminderConfirmInv.client}</span> cho hóa đơn <span className="font-mono text-gray-700">{reminderConfirmInv.id}</span>.
-              </p>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <div className="px-5 pb-5 flex gap-2">
-              <button onClick={() => setReminderConfirmInv(null)}
-                className="flex-1 px-4 py-2 text-sm font-medium rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
+          </div>
+
+          {/* TABLE 2: RECURRING RETENTION COMMISSIONS */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-purple-50/40">
+              <div>
+                <h3 className="font-bold text-purple-950 text-base flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-purple-600" />
+                  Bảng 2: Hoa Hồng Duy Trì Hợp Đồng (Recurring Retention Model)
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Theo chuẩn SRS III.4: Từ tháng thứ 2 trở đi, áp dụng tỷ lệ cố định 5% trên lợi nhuận thực tế định kỳ nhằm duy trì chăm sóc khách hàng dài hạn.
+                </p>
+              </div>
+              <span className="text-xs bg-purple-100 text-purple-800 px-3 py-1 rounded-full font-semibold">
+                {INITIAL_RECURRING_COMMISSIONS.length} Hợp đồng duy trì
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50/80 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase">
+                  <tr>
+                    <th className="px-6 py-3.5">Mã Hợp Đồng</th>
+                    <th className="px-6 py-3.5">Khách Hàng</th>
+                    <th className="px-6 py-3.5 text-center">Tuổi Hợp Đồng</th>
+                    <th className="px-6 py-3.5">Kỳ Thanh Toán</th>
+                    <th className="px-6 py-3.5 text-right">Lợi Nhuận Kỳ</th>
+                    <th className="px-6 py-3.5 text-center">Tỷ Lệ Duy Trì (Fixed)</th>
+                    <th className="px-6 py-3.5 text-right">Hoa Hồng Duy Trì</th>
+                    <th className="px-6 py-3.5 text-center">Trạng Thái</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {INITIAL_RECURRING_COMMISSIONS.map((item) => (
+                    <tr key={item.id} className="hover:bg-purple-50/20 transition-colors">
+                      <td className="px-6 py-4 font-mono text-xs font-bold text-purple-700">{item.contractNo}</td>
+                      <td className="px-6 py-4 font-medium text-gray-900">{item.client}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-gray-100 text-gray-700">
+                          Tháng thứ {item.periodMonth}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-xs text-gray-600">{item.billingCycle}</td>
+                      <td className="px-6 py-4 text-right font-mono font-semibold text-gray-800">{fmt(item.periodProfit)}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                          {(item.retentionRate * 100).toFixed(0)}% cố định
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-right font-mono font-bold text-purple-700">{fmt(item.commission)}</td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                          item.status === 'AVAILABLE' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {item.status === 'AVAILABLE' ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                          {item.status === 'AVAILABLE' ? 'Đã Chốt' : 'Tạm Tính'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= INVOICES TAB (ORIGINAL VIEW) ================= */}
+      {activeMainTab === 'invoices' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-gray-900">Danh Sách Hóa Đơn & Phiếu Thu</h2>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 py-2.5 rounded-xl font-medium text-sm shadow-sm hover:shadow-md hover:from-blue-600 hover:to-indigo-700 transition-all"
+            >
+              <Plus className="w-4 h-4" />
+              Tạo Hóa Đơn
+            </button>
+          </div>
+
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {kpis.map((k) => {
+              const Icon = k.icon;
+              return (
+                <div key={k.label} className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-center gap-4">
+                  <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${k.gradient} flex items-center justify-center flex-shrink-0 shadow-sm`}>
+                    <Icon className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold text-gray-800 truncate">{k.value}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{k.label}</p>
+                    <p className="text-xs text-gray-400">{k.sub}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Filter tabs + search */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {[
+                { key: 'all', label: 'Tất cả' },
+                { key: 'pending_verification', label: 'Chờ xác nhận' },
+                { key: 'paid', label: 'Đã thanh toán' },
+                { key: 'overdue', label: 'Quá hạn' },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setStatusFilter(tab.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    statusFilter === tab.key
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="relative max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Tìm mã hóa đơn, khách hàng..."
+                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50/80 border-b border-gray-100">
+                  <tr>
+                    <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Mã hóa đơn</th>
+                    <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Khách hàng</th>
+                    <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide text-right">Số tiền</th>
+                    <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide">Hạn thanh toán</th>
+                    <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide text-center">Trạng thái</th>
+                    <th className="px-6 py-3.5 font-medium text-gray-500 text-xs uppercase tracking-wide text-right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filtered.length > 0 ? (
+                    filtered.map((inv) => {
+                      const cfg = statusConfig[inv.status] ?? { label: inv.status, color: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400', icon: <DollarSign className="w-3.5 h-3.5" /> };
+                      return (
+                        <tr key={inv.id} className="hover:bg-gray-50/60 transition-colors">
+                          <td className="px-6 py-4 font-mono text-xs font-medium text-gray-800">{inv.id}</td>
+                          <td className="px-6 py-4 text-gray-700">{inv.client}</td>
+                          <td className="px-6 py-4 text-right font-semibold text-gray-800">{fmt(inv.amount)}</td>
+                          <td className="px-6 py-4 text-gray-500 text-xs">{inv.dueDate}</td>
+                          <td className="px-6 py-4 text-center">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${cfg.color}`}>
+                              {cfg.icon}
+                              {cfg.label}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            {inv.status === 'pending_verification' && (
+                              <button
+                                onClick={() => handleConfirmSlip(inv)}
+                                disabled={confirmingId === inv.id}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-medium shadow-sm transition-colors disabled:opacity-50"
+                              >
+                                {confirmingId === inv.id ? 'Đang duyệt...' : 'Duyệt Slip'}
+                              </button>
+                            )}
+                            {inv.status === 'overdue' && (
+                              <button
+                                onClick={() => handleSendReminder(inv)}
+                                disabled={reminderSendingId === inv.id}
+                                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-medium shadow-sm transition-colors disabled:opacity-50"
+                              >
+                                {reminderSendingId === inv.id ? 'Đang gửi...' : 'Nhắc nợ'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="text-center py-10 text-gray-400 text-sm">
+                        Không tìm thấy hóa đơn nào
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reminder Modal */}
+      {reminderConfirmInv && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-gray-900 text-base">Gửi thông báo nhắc nợ</h3>
+            <p className="text-sm text-gray-600">
+              Bạn có chắc muốn gửi email nhắc nợ cho <span className="font-semibold text-gray-800">{reminderConfirmInv.client}</span> với số tiền <span className="font-semibold text-rose-600">{fmt(reminderConfirmInv.amount)}</span>?
+            </p>
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                onClick={() => setReminderConfirmInv(null)}
+                className="px-4 py-2 rounded-xl text-sm text-gray-600 hover:bg-gray-100 transition-colors"
+              >
                 Hủy
               </button>
-              <button onClick={() => void confirmSendReminder(reminderConfirmInv)}
-                className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-orange-500 text-white hover:bg-orange-600 transition-colors">
-                Gửi nhắc nhở
+              <button
+                onClick={() => confirmSendReminder(reminderConfirmInv)}
+                className="px-4 py-2 rounded-xl text-sm bg-rose-600 hover:bg-rose-700 text-white font-medium shadow-sm transition-colors"
+              >
+                Xác nhận gửi
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Invoice Detail Modal */}
-      {selectedInvoice && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={() => setSelectedInvoice(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-gray-500" />
-                <h2 className="text-sm font-bold text-gray-900">Chi tiết hóa đơn</h2>
-              </div>
-              <button onClick={() => setSelectedInvoice(null)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
-            </div>
-            <div className="p-5 space-y-3">
-              {[
-                { label: 'Mã hóa đơn', value: <span className="font-mono text-xs">{selectedInvoice.id}</span> },
-                { label: 'Khách hàng', value: selectedInvoice.client },
-                { label: 'Số tiền', value: <span className="font-semibold text-gray-800">{fmt(selectedInvoice.amount)}</span> },
-                { label: 'Hạn thanh toán', value: selectedInvoice.dueDate },
-                { label: 'Trạng thái', value: (
-                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${statusConfig[selectedInvoice.status]?.color ?? 'bg-gray-100 text-gray-700'}`}>
-                    {statusConfig[selectedInvoice.status]?.icon}
-                    {statusConfig[selectedInvoice.status]?.label ?? selectedInvoice.status}
-                  </span>
-                )},
-              ].map(({ label, value }) => (
-                <div key={label} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-                  <span className="text-xs text-gray-500">{label}</span>
-                  <span className="text-sm text-gray-800">{value}</span>
-                </div>
-              ))}
-            </div>
-            <div className="px-5 pb-5">
-              <button onClick={() => setSelectedInvoice(null)}
-                className="w-full px-4 py-2 text-sm font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Create Modal */}
+      {showCreateModal && (
+        <CreateInvoiceModal
+          open={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          onSuccess={handleCreateSuccess}
+        />
       )}
     </div>
   );

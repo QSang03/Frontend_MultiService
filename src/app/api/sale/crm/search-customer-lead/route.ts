@@ -10,7 +10,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'query is required' }, { status: 400 });
   }
 
-  const result = await protoSearchCustomerLead({ searchTerm: query });
+  const result = await protoSearchCustomerLead({ query });
   if (!result.success || !result.response) {
     return NextResponse.json({ error: result.error || 'SearchCustomerLead failed' }, { status: 500 });
   }

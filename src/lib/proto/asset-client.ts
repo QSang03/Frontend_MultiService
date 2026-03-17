@@ -1,4 +1,4 @@
-import 'server-only';
+﻿import 'server-only';
 import { createClient } from '@connectrpc/connect';
 import { createGrpcTransport } from '@connectrpc/connect-node';
 import { create } from '@bufbuild/protobuf';
@@ -108,6 +108,90 @@ export async function protoListAssets(payload: {
     return { success: true, response };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'List assets failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoGetAssetTCO(payload: {
+  assetId: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadAssetModule();
+  if (!mod) {
+    return { success: false, error: 'AssetService proto module not yet available.' };
+  }
+
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedAssetClient();
+      const request = create(mod.GetAssetTCORequestSchema as unknown as DescMessage, {
+        assetId: payload.assetId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).getAssetTco(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get TCO failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoGetAssetRepairHistory(payload: {
+  assetId: string;
+  pageSize?: number;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadAssetModule();
+  if (!mod) {
+    return { success: false, error: 'AssetService proto module not yet available.' };
+  }
+
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedAssetClient();
+      const request = create(mod.GetAssetRepairHistoryRequestSchema as unknown as DescMessage, {
+        assetId: payload.assetId,
+        pageSize: payload.pageSize ?? 20,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).getAssetRepairHistory(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get repair history failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoRecordDigitalHandover(payload: {
+  ticketId: string;
+  assetId: string;
+  technicianId: string;
+  customerName: string;
+  signatureDataUrl: string;
+  notes: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadAssetModule();
+  if (!mod) {
+    return { success: false, error: 'AssetService proto module not yet available.' };
+  }
+
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedAssetClient();
+      const request = create(mod.RecordDigitalHandoverRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        assetId: payload.assetId,
+        technicianId: payload.technicianId,
+        customerName: payload.customerName,
+        signatureDataUrl: payload.signatureDataUrl,
+        notes: payload.notes,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).recordDigitalHandover(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Record handover failed';
     return { success: false, error: message };
   }
 }

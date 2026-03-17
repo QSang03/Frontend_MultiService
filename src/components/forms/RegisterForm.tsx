@@ -8,6 +8,7 @@ import { Button, Input } from '@/components/ui';
 import { Card, CardHeader, CardBody } from '@/components/ui';
 import { ROUTES, APP_NAME } from '@/constants';
 import { isValidEmail, isValidPhone } from '@/utils';
+import ConflictMergeModal from '@/components/ConflictMergeModal';
 
 type RegisterMode = 'personal' | 'business';
 
@@ -33,6 +34,15 @@ export default function RegisterForm({ mode = 'personal' }: Props) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [resendLoading, setResendLoading] = useState(false);
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [conflictResolved, setConflictResolved] = useState(false);
+  const [guestData, setGuestData] = useState<{
+    fullName: string;
+    email?: string;
+    address?: string;
+    ticketCount: number;
+    lastTicketDate: string;
+  } | null>(null);
   const toast = useToast();
 
   const validate = () => {
@@ -86,6 +96,43 @@ export default function RegisterForm({ mode = 'personal' }: Props) {
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: '' }));
     }
+  };
+
+  const checkGuestHistory = async () => {
+    if (!formData.phone || !isValidPhone(formData.phone) || conflictResolved) return;
+    try {
+      const res = await fetch(`/api/sale/crm/search-customer-lead?phone=${encodeURIComponent(formData.phone)}`);
+      const data = await res.json();
+      if (data && data.lead) {
+        setGuestData({
+          fullName: data.lead.name || 'Khách vãng lai',
+          email: data.lead.email || undefined,
+          address: data.lead.address || undefined,
+          ticketCount: data.lead.ticketCount || 1,
+          lastTicketDate: data.lead.lastTicketDate || 'Gần đây',
+        });
+        setShowConflictModal(true);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleConfirmMerge = (resolutions: Record<string, string>) => {
+    if (resolutions.fullName) {
+      setFormData((prev) => ({ ...prev, name: resolutions.fullName }));
+    }
+    if (resolutions.email) {
+      setFormData((prev) => ({ ...prev, email: resolutions.email }));
+    }
+    setConflictResolved(true);
+    setShowConflictModal(false);
+    toast.success('Đã chọn phương án gộp thông tin lịch sử!');
+  };
+
+  const handleSkipMerge = () => {
+    setConflictResolved(true);
+    setShowConflictModal(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -379,6 +426,23 @@ export default function RegisterForm({ mode = 'personal' }: Props) {
           </div>
         </CardBody>
       </Card>
+
+      {/* Sprint 5.2: Profile Merging & Conflict Resolution */}
+      {showConflictModal && guestData && (
+        <ConflictMergeModal
+          isOpen={showConflictModal}
+          phone={formData.phone}
+          guestProfile={guestData}
+          newProfile={{
+            fullName: formData.name,
+            email: formData.email,
+            address: mode === "business" ? formData.organizationAddress : undefined,
+          }}
+          onClose={() => setShowConflictModal(false)}
+          onConfirmMerge={handleConfirmMerge}
+          onSkipMerge={handleSkipMerge}
+        />
+      )}
     </div>
   );
 }
