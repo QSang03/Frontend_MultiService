@@ -327,6 +327,43 @@ export default function SaleQuotationsPage() {
   const customerSearchRef = useRef<HTMLInputElement>(null);
   const ticketSearchRef = useRef<HTMLInputElement>(null);
 
+  // Track unsaved form data via ref to avoid stale closure in ESC handler
+  const hasFormDataRef = useRef(false);
+  hasFormDataRef.current = !!(selectedCustomerId || quotationItemRows.length > 0 || quotationNote || (quotationTotalAmount && quotationTotalAmount !== '0'));
+
+  const resetCreateForm = () => {
+    setSelectedClient('');
+    setSelectedCustomerId('');
+    setSelectedTemplateId('');
+    setTicketId('');
+    setSelectedTicketTitle('');
+    setQuotationTotalAmount('');
+    setQuotationTaxAmount('');
+    setQuotationCurrency('VND');
+    setQuotationNote('');
+    setQuotationItemRows([]);
+    setMarginResult(null);
+    setCustomerSearch('');
+    setTicketSearch('');
+  };
+
+  const handleCloseCreateModal = () => {
+    const hasData = !!(selectedCustomerId || quotationItemRows.length > 0 || quotationNote || (quotationTotalAmount && quotationTotalAmount !== '0'));
+    if (hasData) {
+      setConfirmAction({
+        title: 'Hủy tạo báo giá?',
+        message: 'Bạn có dữ liệu chưa lưu. Đóng sẽ mất toàn bộ thông tin đã nhập.',
+        onConfirm: () => {
+          setShowCreateModal(false);
+          resetCreateForm();
+          setConfirmAction(null);
+        },
+      });
+    } else {
+      setShowCreateModal(false);
+    }
+  };
+
   const fetchCustomers = async (search = '') => {
     setLoadingCustomers(true);
     try {
@@ -888,16 +925,7 @@ export default function SaleQuotationsPage() {
       addToast(`Đã tạo báo giá: ${newQid}`, { type: 'success' });
       // Reset form và đóng modal
       setShowCreateModal(false);
-      setSelectedClient('');
-      setSelectedCustomerId('');
-      setSelectedTemplateId('');
-      setTicketId('');
-      setSelectedTicketTitle('');
-      setQuotationTotalAmount('');
-      setQuotationTaxAmount('');
-      setQuotationCurrency('VND');
-      setQuotationNote('');
-      setQuotationItemRows([]);
+      resetCreateForm();
       setMainTab('pipeline');
       setPendingQuotationSubmit(false);
       setShowCreditWarning(false);

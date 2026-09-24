@@ -12,12 +12,15 @@ interface Invoice {
   amount: number;
   dueDate: string;
   status: string;
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 const INITIAL_INVOICES: Invoice[] = [
-  { id: 'INV-2024-001', client: 'TechSolutions Ltd', amount: 50000000, dueDate: '2024-02-15', status: 'pending_verification' },
-  { id: 'INV-2024-002', client: 'Nguyen Van A',      amount: 1500000,  dueDate: '2024-01-25', status: 'paid' },
-  { id: 'INV-2024-003', client: 'StartUp Alpha',     amount: 12000000, dueDate: '2024-02-01', status: 'overdue' },
+  { id: 'INV-2024-001', client: 'TechSolutions Ltd', amount: 50000000, dueDate: '2024-02-15', status: 'pending_verification', createdBy: 'Nguyen Sale', updatedAt: '2024-01-20T08:30:00Z', updatedBy: 'Nguyen Sale' },
+  { id: 'INV-2024-002', client: 'Nguyen Van A',      amount: 1500000,  dueDate: '2024-01-25', status: 'paid',                 createdBy: 'Tran Sale',   updatedAt: '2024-01-25T14:20:00Z', updatedBy: 'Admin' },
+  { id: 'INV-2024-003', client: 'StartUp Alpha',     amount: 12000000, dueDate: '2024-02-01', status: 'overdue',              createdBy: 'Nguyen Sale', updatedAt: '2024-01-28T09:00:00Z', updatedBy: 'Nguyen Sale' },
 ];
 
 const statusConfig: Record<string, { label: string; color: string; dot: string; icon: React.ReactNode }> = {
@@ -78,7 +81,42 @@ export default function RevenuePage() {
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 
   const handleCreateSuccess = (newInvoice: Invoice) => {
-    setInvoices([newInvoice, ...invoices]);
+    setInvoices([{ ...newInvoice, createdBy: 'Bạn', updatedAt: new Date().toISOString(), updatedBy: 'Bạn' }, ...invoices]);
+  };
+
+  const handleExportPDF = (inv: Invoice) => {
+    const fmtAmt = fmt(inv.amount);
+    const cfg = statusConfig[inv.status] ?? { label: inv.status };
+    const html = `<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"><title>Hóa đơn ${inv.id}</title>
+<style>
+  body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;color:#111;font-size:14px}
+  h1{font-size:22px;color:#1e40af;margin-bottom:4px}
+  .sub{color:#6b7280;font-size:12px;margin-bottom:24px}
+  table{width:100%;border-collapse:collapse;margin-top:16px}
+  th{background:#f3f4f6;padding:8px 12px;text-align:left;font-size:12px;text-transform:uppercase;color:#6b7280}
+  td{padding:10px 12px;border-bottom:1px solid #f3f4f6}
+  .amount{font-weight:700;font-size:16px;color:#1e40af}
+  .footer{margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af}
+  @media print{body{margin:0}}
+</style></head>
+<body>
+<h1>HÓA ĐƠN THANH TOÁN</h1>
+<p class="sub">Mã hóa đơn: <strong>${inv.id}</strong></p>
+<table>
+  <tr><th>Thông tin</th><th>Chi tiết</th></tr>
+  <tr><td>Khách hàng</td><td><strong>${inv.client}</strong></td></tr>
+  <tr><td>Số tiền</td><td class="amount">${fmtAmt}</td></tr>
+  <tr><td>Hạn thanh toán</td><td>${inv.dueDate}</td></tr>
+  <tr><td>Trạng thái</td><td>${cfg.label}</td></tr>
+  ${inv.createdBy ? `<tr><td>Tạo bởi</td><td>${inv.createdBy}</td></tr>` : ''}
+  ${inv.updatedAt ? `<tr><td>Cập nhật lần cuối</td><td>${new Date(inv.updatedAt).toLocaleString('vi-VN')}${inv.updatedBy ? ' · bởi ' + inv.updatedBy : ''}</td></tr>` : ''}
+</table>
+<div class="footer">Xuất ngày: ${new Date().toLocaleString('vi-VN')}</div>
+<script>window.onload=()=>{ window.print(); }<\/script>
+</body></html>`;
+    const win = window.open('', '_blank', 'width=800,height=600');
+    if (win) { win.document.write(html); win.document.close(); }
   };
 
   const filtered = invoices.filter(inv => {
@@ -186,7 +224,19 @@ export default function RevenuePage() {
                   return (
                     <tr key={inv.id} className="hover:bg-gray-50/60 transition-colors">
                       <td className="px-6 py-4 font-mono text-xs font-medium text-gray-800">{inv.id}</td>
-                      <td className="px-6 py-4 text-gray-700">{inv.client}</td>
+                      <td className="px-6 py-4">
+                        <span className="text-gray-700">{inv.client}</span>
+                        {(inv.updatedAt || inv.createdBy) && (
+                          <div className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5 flex-shrink-0" />
+                            <span>
+                              {inv.updatedAt
+                                ? `${new Date(inv.updatedAt).toLocaleDateString('vi-VN')}${inv.updatedBy ? ' · ' + inv.updatedBy : ''}`
+                                : inv.createdBy}
+                            </span>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-right font-semibold text-gray-800">{fmt(inv.amount)}</td>
                       <td className="px-6 py-4 text-gray-500 text-xs">{inv.dueDate}</td>
                       <td className="px-6 py-4 text-center">
