@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Plus, Search, AlertCircle, CheckCircle2, Clock, DollarSign, TrendingUp, FileText, Download } from 'lucide-react';
+import { Plus, Search, AlertCircle, CheckCircle2, Clock, DollarSign, TrendingUp, FileText, Loader2, X } from 'lucide-react';
 import CreateInvoiceModal from './CreateInvoiceModal';
+import { useToast } from '@/components/ui';
+import axiosInstance from '@/lib/axios';
 
 interface Invoice {
   id: string;
@@ -39,6 +41,41 @@ export default function RevenuePage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [reminderSendingId, setReminderSendingId] = useState<string | null>(null);
+  const [reminderConfirmInv, setReminderConfirmInv] = useState<Invoice | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const { addToast } = useToast();
+
+  const handleConfirmSlip = async (inv: Invoice) => {
+    setConfirmingId(inv.id);
+    try {
+      await axiosInstance.put(`/invoices/${inv.id}/confirm`);
+      setInvoices(prev => prev.map(i => i.id === inv.id ? { ...i, status: 'paid' } : i));
+      addToast(`Đã xác nhận slip cho ${inv.client}`, { type: 'success' });
+    } catch {
+      addToast(`Xác nhận slip thất bại cho ${inv.client}`, { type: 'error' });
+    } finally {
+      setConfirmingId(null);
+    }
+  };
+
+  const handleSendReminder = async (inv: Invoice) => {
+    setReminderConfirmInv(inv);
+  };
+
+  const confirmSendReminder = async (inv: Invoice) => {
+    setReminderConfirmInv(null);
+    setReminderSendingId(inv.id);
+    try {
+      await axiosInstance.post(`/invoices/${inv.id}/reminder`);
+      addToast(`Đã gửi nhắc nhở thanh toán cho ${inv.client}`, { type: 'success' });
+    } catch {
+      addToast(`Gửi nhắc nhở thất bại cho ${inv.client}`, { type: 'error' });
+    } finally {
+      setReminderSendingId(null);
+    }
+  };
 
   const fmt = (amount: number) =>
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -209,24 +246,34 @@ export default function RevenuePage() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                        {inv.status === 'pending_verification' && (
                           <button
-                            onClick={() => handleExportPDF(inv)}
-                            title="Xuất PDF hóa đơn"
-                            className="text-gray-400 hover:text-blue-600 transition-colors"
+                            onClick={() => handleConfirmSlip(inv)}
+                            disabled={confirmingId === inv.id}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                           >
-                            <Download className="w-3.5 h-3.5" />
+                            {confirmingId === inv.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                            Xác nhận slip
                           </button>
-                          {inv.status === 'pending_verification' && (
-                            <button className="text-blue-600 hover:text-blue-700 text-xs font-medium hover:underline">Xác nhận slip</button>
-                          )}
-                          {inv.status === 'overdue' && (
-                            <button className="text-red-600 hover:text-red-700 text-xs font-medium hover:underline">Gửi nhắc nhở</button>
-                          )}
-                          {inv.status === 'paid' && (
-                            <button className="text-gray-500 hover:text-gray-700 text-xs font-medium hover:underline">Xem chi tiết</button>
-                          )}
-                        </div>
+                        )}
+                        {inv.status === 'overdue' && (
+                          <button
+                            onClick={() => handleSendReminder(inv)}
+                            disabled={reminderSendingId === inv.id}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {reminderSendingId === inv.id && <Loader2 className="w-3 h-3 animate-spin" />}
+                            Gửi nhắc nhở
+                          </button>
+                        )}
+                        {inv.status === 'paid' && (
+                          <button
+                            onClick={() => setSelectedInvoice(inv)}
+                            className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                          >
+                            Xem chi tiết
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -254,6 +301,77 @@ export default function RevenuePage() {
         onClose={() => setShowCreateModal(false)}
         onSuccess={handleCreateSuccess}
       />
+
+      {/* Reminder Confirm Modal */}
+      {reminderConfirmInv && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => setReminderConfirmInv(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="p-5 text-center">
+              <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-3">
+                <AlertCircle className="w-6 h-6 text-orange-600" />
+              </div>
+              <h3 className="text-sm font-bold text-gray-900 mb-1">Gửi nhắc nhở thanh toán?</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Hệ thống sẽ gửi email nhắc nhở thanh toán đến <span className="font-semibold text-gray-700">{reminderConfirmInv.client}</span> cho hóa đơn <span className="font-mono text-gray-700">{reminderConfirmInv.id}</span>.
+              </p>
+            </div>
+            <div className="px-5 pb-5 flex gap-2">
+              <button onClick={() => setReminderConfirmInv(null)}
+                className="flex-1 px-4 py-2 text-sm font-medium rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors">
+                Hủy
+              </button>
+              <button onClick={() => void confirmSendReminder(reminderConfirmInv)}
+                className="flex-1 px-4 py-2 text-sm font-medium rounded-xl bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                Gửi nhắc nhở
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Detail Modal */}
+      {selectedInvoice && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => setSelectedInvoice(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-gray-500" />
+                <h2 className="text-sm font-bold text-gray-900">Chi tiết hóa đơn</h2>
+              </div>
+              <button onClick={() => setSelectedInvoice(null)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors">
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              {[
+                { label: 'Mã hóa đơn', value: <span className="font-mono text-xs">{selectedInvoice.id}</span> },
+                { label: 'Khách hàng', value: selectedInvoice.client },
+                { label: 'Số tiền', value: <span className="font-semibold text-gray-800">{fmt(selectedInvoice.amount)}</span> },
+                { label: 'Hạn thanh toán', value: selectedInvoice.dueDate },
+                { label: 'Trạng thái', value: (
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${statusConfig[selectedInvoice.status]?.color ?? 'bg-gray-100 text-gray-700'}`}>
+                    {statusConfig[selectedInvoice.status]?.icon}
+                    {statusConfig[selectedInvoice.status]?.label ?? selectedInvoice.status}
+                  </span>
+                )},
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                  <span className="text-xs text-gray-500">{label}</span>
+                  <span className="text-sm text-gray-800">{value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 pb-5">
+              <button onClick={() => setSelectedInvoice(null)}
+                className="w-full px-4 py-2 text-sm font-medium rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors">
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

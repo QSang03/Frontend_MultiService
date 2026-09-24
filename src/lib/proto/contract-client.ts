@@ -7,7 +7,9 @@ import 'server-only';
 import { createClient } from '@connectrpc/connect';
 import { createGrpcTransport } from '@connectrpc/connect-node';
 import { create } from '@bufbuild/protobuf';
-import { getAccessToken, getRefreshToken, updateTokens, deleteSession } from '@/lib/auth/session';
+import { decodeJwt } from 'jose';
+import { getAccessToken, deleteSession } from '@/lib/auth/session';
+import { refreshTokens } from '@/lib/auth/refresh';
 import {
   ContractService,
   CreateContractRequestSchema,
@@ -33,6 +35,14 @@ import {
   UploadRevisedContractRequestSchema,
   FinalizeContractRequestSchema,
   GetContractTimelineRequestSchema,
+  GetSaleMeStatsRequestSchema,
+  ListMyCommissionsRequestSchema,
+  GetClawbackLedgerRequestSchema,
+  GetOrgCreditBalanceRequestSchema,
+  RequestPayoutRequestSchema,
+  ListMyPayoutsRequestSchema,
+  CancelPayoutRequestSchema,
+  GetCommissionDetailRequestSchema,
   ContractStatus,
   SignatureMethod,
 } from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/contract_pb.js';
@@ -41,6 +51,14 @@ import type {
   UploadRevisedContractResponse,
   FinalizeContractResponse,
   GetContractTimelineResponse,
+  GetSaleMeStatsResponse,
+  ListMyCommissionsResponse,
+  GetClawbackLedgerResponse,
+  GetOrgCreditBalanceResponse,
+  RequestPayoutResponse,
+  ListMyPayoutsResponse,
+  CancelPayoutResponse,
+  GetCommissionDetailResponse,
 } from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/contract_pb.js';
 
 import type {
@@ -61,31 +79,26 @@ const transport = createGrpcTransport({
 
 const contractClient = createClient(ContractService, transport);
 
-// Helper to refresh access token using server-side cookies
-async function refreshAccessToken(): Promise<boolean> {
+function isAccessTokenExpiredOrNearExpiry(token: string, skewSeconds = 30): boolean {
   try {
-    const refreshToken = await getRefreshToken();
-    if (!refreshToken) {
-      console.log('[contract-client refreshAccessToken] No refresh token found');
-      return false;
-    }
-
-    // Import auth client dynamically to avoid circular deps
-    const { protoRefreshToken } = await import('./auth-client');
-    const result = await protoRefreshToken(refreshToken);
-    
-    if (result.success && result.response?.tokens) {
-      await updateTokens(
-        result.response.tokens.accessToken,
-        result.response.tokens.refreshToken
-      );
-      return true;
-    }
-    return false;
-  } catch (err) {
-    console.error('[contract-client refreshAccessToken] Error:', err);
-    return false;
+    const payload = decodeJwt(token);
+    const exp = typeof payload.exp === 'number' ? payload.exp : 0;
+    if (!exp) return true;
+    return exp <= Math.floor(Date.now() / 1000) + skewSeconds;
+  } catch {
+    return true;
   }
+}
+
+async function ensureFreshAccessToken(): Promise<boolean> {
+  const token = await getAccessToken();
+
+  if (token && !isAccessTokenExpiredOrNearExpiry(token)) {
+    return true;
+  }
+
+  console.log('[contract-client ensureFreshAccessToken] Access token missing/expired, refreshing before business call...');
+  return refreshTokens();
 }
 
 // Helper to execute authenticated call with auto-retry on unauthenticated
@@ -93,6 +106,19 @@ async function executeWithRefresh<T>(
   operation: () => Promise<T>,
   retryOnce = true
 ): Promise<T> {
+  if (retryOnce) {
+    const ready = await ensureFreshAccessToken();
+
+    if (!ready) {
+      try {
+        await deleteSession();
+      } catch (e) {
+        console.error('[contract-client] deleteSession failed during preflight refresh:', e);
+      }
+      throw new Error('SESSION_EXPIRED');
+    }
+  }
+
   try {
     return await operation();
   } catch (err) {
@@ -105,7 +131,8 @@ async function executeWithRefresh<T>(
     
     if (isUnauthenticated && retryOnce) {
       console.log('[contract-client executeWithRefresh] Unauthenticated, attempting refresh...');
-      const refreshed = await refreshAccessToken();
+      // Use shared mutex-based refresh to prevent parallel refresh storms
+      const refreshed = await refreshTokens();
 
       if (refreshed) {
         return executeWithRefresh(operation, false);
@@ -433,6 +460,176 @@ export async function protoGetContractTimeline(
     return { success: true, response };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Get contract timeline failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Get current sale earnings/performance stats.
+ */
+export async function protoGetSaleMeStats(): Promise<ProtoContractResult<GetSaleMeStatsResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(GetSaleMeStatsRequestSchema, {});
+      return await client.getSaleMeStats(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get sale stats failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * List sale commission entries for the logged-in user.
+ */
+export async function protoListMyCommissions(params?: {
+  pageSize?: number;
+  pageToken?: string;
+  status?: string;
+}): Promise<ProtoContractResult<ListMyCommissionsResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(ListMyCommissionsRequestSchema, {
+        pageSize: params?.pageSize ?? 20,
+        pageToken: params?.pageToken ?? '',
+        status: params?.status?.trim() || undefined,
+      });
+      return await client.listMyCommissions(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'List commissions failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Get clawback ledger entries for the logged-in sale user.
+ */
+export async function protoGetClawbackLedger(params?: {
+  pageSize?: number;
+  pageToken?: string;
+}): Promise<ProtoContractResult<GetClawbackLedgerResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(GetClawbackLedgerRequestSchema, {
+        pageSize: params?.pageSize ?? 20,
+        pageToken: params?.pageToken ?? '',
+      });
+      return await client.getClawbackLedger(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get clawback ledger failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Get credit balance details for an organization.
+ */
+export async function protoGetOrgCreditBalance(
+  orgId: string
+): Promise<ProtoContractResult<GetOrgCreditBalanceResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(GetOrgCreditBalanceRequestSchema, { orgId });
+      return await client.getOrgCreditBalance(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get org credit balance failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Request payout for the logged-in sale user.
+ */
+export async function protoRequestPayout(data: {
+  amount: string;
+  note?: string;
+}): Promise<ProtoContractResult<RequestPayoutResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(RequestPayoutRequestSchema, {
+        amount: data.amount,
+        note: data.note?.trim() || undefined,
+      });
+      return await client.requestPayout(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Request payout failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * List payout requests for the logged-in sale user.
+ */
+export async function protoListMyPayouts(params?: {
+  pageSize?: number;
+  pageToken?: string;
+  status?: number;
+}): Promise<ProtoContractResult<ListMyPayoutsResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(ListMyPayoutsRequestSchema, {
+        pageSize: params?.pageSize ?? 10,
+        pageToken: params?.pageToken ?? '',
+        status: params?.status,
+      });
+      return await client.listMyPayouts(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'List payouts failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Cancel a payout request for the logged-in sale user.
+ */
+export async function protoCancelPayout(
+  payoutId: string
+): Promise<ProtoContractResult<CancelPayoutResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(CancelPayoutRequestSchema, { payoutId });
+      return await client.cancelPayout(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Cancel payout failed';
+    return { success: false, error: message };
+  }
+}
+
+/**
+ * Get commission detail for a single commission entry.
+ */
+export async function protoGetCommissionDetail(
+  commissionId: string
+): Promise<ProtoContractResult<GetCommissionDetailResponse>> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(GetCommissionDetailRequestSchema, { commissionId });
+      return await client.getCommissionDetail(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get commission detail failed';
     return { success: false, error: message };
   }
 }

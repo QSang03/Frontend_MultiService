@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import {
+  AlertTriangle,
   Users,
   Search,
   Plus,
   Mail,
   Building,
+  Landmark,
   Filter,
   ChevronRight,
   Loader2,
@@ -21,12 +24,14 @@ type Tab = 'pipeline' | 'directory';
 type IdentityCase = 'A' | 'B' | 'C';
 
 interface SalesLead extends Lead {
+  orgId?: string;
   identityType: 'customer' | 'guest' | 'new';
   verificationState: 'unverified' | 'otp_sent' | 'verified' | 'converted';
 }
 
 interface Client {
   id: string;
+  orgId?: string;
   name: string;
   company: string;
   email: string;
@@ -63,6 +68,13 @@ type Uc2Schema = {
   required?: string[];
 };
 
+type OrgCreditBalance = {
+  orgId?: string;
+  creditLimit?: string;
+  availableCredit?: string;
+  outstandingBalance?: string;
+};
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_REGEX = /^[0-9+()\-\s]{8,20}$/;
 
@@ -96,6 +108,8 @@ export default function SaleCustomersPage() {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
+  const [editEmailTouched, setEditEmailTouched] = useState(false);
+  const [editPhoneTouched, setEditPhoneTouched] = useState(false);
   const [originalEditName, setOriginalEditName] = useState('');
   const [originalEditEmail, setOriginalEditEmail] = useState('');
   const [originalEditPhone, setOriginalEditPhone] = useState('');
@@ -117,6 +131,17 @@ export default function SaleCustomersPage() {
   const [customerNextPageToken, setCustomerNextPageToken] = useState('');
   const [loadingMoreLeads, setLoadingMoreLeads] = useState(false);
   const [loadingMoreCustomers, setLoadingMoreCustomers] = useState(false);
+  const [orgCreditBalance, setOrgCreditBalance] = useState<OrgCreditBalance | null>(null);
+  const [orgCreditLoading, setOrgCreditLoading] = useState(false);
+  const [orgCreditError, setOrgCreditError] = useState('');
+
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
+
+  const parseMoneyString = (value?: string) => {
+    const parsed = Number(String(value ?? '0').replace(/[^\d.-]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
 
   const mergeLeadsById = (current: SalesLead[], incoming: SalesLead[]) => {
     const map = new Map<string, SalesLead>();
@@ -137,6 +162,7 @@ export default function SaleCustomersPage() {
       const customerType: Client['type'] = customer.company && customer.company !== 'Individual' ? 'B2B' : 'B2C';
       return {
         id: customer.id,
+        orgId: customer.orgId,
         name: customer.name,
         company: customer.company || 'N/A',
         email: customer.email,
@@ -266,6 +292,9 @@ export default function SaleCustomersPage() {
       try {
         if (!mounted) return;
 
+        const authReady = await ensureAuthReady();
+        if (!authReady) { router.replace('/login'); return; }
+
         await Promise.all([fetchLeadPage('', false), fetchCustomerPage('', false)]);
       } catch {
         if (mounted) {
@@ -290,6 +319,75 @@ export default function SaleCustomersPage() {
       setCaseCCreateAttempted(false);
     }
   }, [identityResult?.caseType]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadOrgCreditBalance = async () => {
+      const orgId = String(selectedClient?.orgId ?? '').trim();
+
+      if (!selectedClient) {
+        setOrgCreditBalance(null);
+        setOrgCreditError('');
+        setOrgCreditLoading(false);
+        return;
+      }
+
+      if (!orgId) {
+        setOrgCreditBalance(null);
+        setOrgCreditError('Khách này chưa có org_id để tra công nợ tổ chức.');
+        setOrgCreditLoading(false);
+        return;
+      }
+
+      setOrgCreditLoading(true);
+      setOrgCreditError('');
+
+      try {
+        const response = await fetch(`/api/sale/commissions/org-credit/${encodeURIComponent(orgId)}`, { cache: 'no-store' });
+        const json = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(json?.error || 'Không lấy được công nợ tổ chức.');
+        }
+
+        if (!cancelled) {
+          setOrgCreditBalance((json?.data ?? null) as OrgCreditBalance | null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setOrgCreditBalance(null);
+          setOrgCreditError(error instanceof Error ? error.message : 'Không lấy được công nợ tổ chức.');
+        }
+      } finally {
+        if (!cancelled) {
+          setOrgCreditLoading(false);
+        }
+      }
+    };
+
+    void loadOrgCreditBalance();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClient]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const dirty =
+        editingLeadId !== null &&
+        (editName.trim() !== originalEditName.trim() ||
+          editEmail.trim() !== originalEditEmail.trim() ||
+          editPhone.trim() !== originalEditPhone.trim());
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [editingLeadId, editName, editEmail, editPhone, originalEditName, originalEditEmail, originalEditPhone]);
 
   const handleLoadMoreLeads = async () => {
     if (!leadNextPageToken || loadingMoreLeads) return;
@@ -669,6 +767,8 @@ export default function SaleCustomersPage() {
       setEditingLeadId(null);
       setShowClientEditWarning(false);
       setShowEditSaveConfirm(false);
+      setEditEmailTouched(false);
+      setEditPhoneTouched(false);
       setIdentityMessage('UpdateCustomerLead thành công.');
     } catch {
       setIdentityMessage('Lỗi kết nối UpdateCustomerLead.');
@@ -1164,20 +1264,30 @@ export default function SaleCustomersPage() {
                       placeholder="Họ và tên"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <input
-                      type="email"
-                      value={editEmail}
-                      onChange={(e) => setEditEmail(e.target.value)}
-                      placeholder="Email"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <input
-                      type="tel"
-                      value={editPhone}
-                      onChange={(e) => setEditPhone(e.target.value)}
-                      placeholder="Số điện thoại"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <div>
+                      <input
+                        type="email"
+                        value={editEmail}
+                        onChange={(e) => { setEditEmail(e.target.value); setEditEmailTouched(true); }}
+                        placeholder="Email"
+                        className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${editEmailTouched && editEmail.length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editEmail) ? 'border-red-400' : 'border-gray-300'}`}
+                      />
+                      {editEmailTouched && editEmail.length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editEmail) && (
+                        <p className="text-xs text-red-500 mt-1">Email không hợp lệ.</p>
+                      )}
+                    </div>
+                    <div>
+                      <input
+                        type="tel"
+                        value={editPhone}
+                        onChange={(e) => { setEditPhone(e.target.value); setEditPhoneTouched(true); }}
+                        placeholder="Số điện thoại"
+                        className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${editPhoneTouched && editPhone.length > 0 && !/^(0|\+84)[3-9]\d{8}$/.test(editPhone) ? 'border-red-400' : 'border-gray-300'}`}
+                      />
+                      {editPhoneTouched && editPhone.length > 0 && !/^(0|\+84)[3-9]\d{8}$/.test(editPhone) && (
+                        <p className="text-xs text-red-500 mt-1">Số điện thoại không hợp lệ (VD: 0912345678).</p>
+                      )}
+                    </div>
                     <div className="flex gap-2">
                       <button
                         onClick={requestSaveEditInfo}
@@ -1188,8 +1298,11 @@ export default function SaleCustomersPage() {
                       </button>
                       <button
                         onClick={() => {
+                          if (hasEditChanges && !window.confirm('Bạn có thay đổi chưa lưu. Bỏ qua?')) return;
                           setEditingLeadId(null);
                           setShowEditSaveConfirm(false);
+                          setEditEmailTouched(false);
+                          setEditPhoneTouched(false);
                         }}
                         disabled={savingEditInfo}
                         className="flex-1 px-3 py-2 rounded-md bg-white border border-gray-300 text-gray-700 text-xs font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1455,6 +1568,7 @@ export default function SaleCustomersPage() {
                       </button>
                       <button
                         onClick={() => {
+                          if (hasEditChanges && !window.confirm('Bạn có thay đổi chưa lưu. Bỏ qua?')) return;
                           setEditingLeadId(null);
                           setShowClientEditWarning(false);
                           setShowEditSaveConfirm(false);
@@ -1491,6 +1605,126 @@ export default function SaleCustomersPage() {
                     )}
                   </div>
                 )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                {/* Card header */}
+                <div className="px-6 pt-5 pb-4 flex items-center justify-between gap-3 border-b border-gray-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-sm">
+                      <Landmark className="w-4.5 h-4.5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 leading-tight">Credit & Debt Check</h3>
+                      <p className="text-xs text-gray-400 mt-0.5">Hạn mức &amp; công nợ tổ chức</p>
+                    </div>
+                  </div>
+                  {selectedClient.orgId ? (
+                    <span className="text-[11px] font-mono bg-gray-100 text-gray-500 px-2 py-1 rounded-md truncate max-w-[120px]" title={selectedClient.orgId}>
+                      {selectedClient.orgId.slice(0, 8)}…
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="px-6 py-5 space-y-4">
+                  {/* Error / no org-id state */}
+                  {orgCreditError ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex gap-2.5 items-start">
+                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+                      <p className="text-sm text-amber-800 leading-snug">{orgCreditError}</p>
+                    </div>
+                  ) : null}
+
+                  {/* Stat grid */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* Credit Limit */}
+                    <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3.5 flex flex-col gap-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-400">Credit Limit</p>
+                      {orgCreditLoading ? (
+                        <div className="h-5 w-3/4 rounded bg-blue-200 animate-pulse mt-0.5" />
+                      ) : (
+                        <p className="text-sm font-bold text-blue-700 tabular-nums">
+                          {formatCurrency(parseMoneyString(orgCreditBalance?.creditLimit))}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Available Credit */}
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3.5 flex flex-col gap-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-500">Available</p>
+                      {orgCreditLoading ? (
+                        <div className="h-5 w-3/4 rounded bg-emerald-200 animate-pulse mt-0.5" />
+                      ) : (
+                        <p className="text-sm font-bold text-emerald-700 tabular-nums">
+                          {formatCurrency(parseMoneyString(orgCreditBalance?.availableCredit))}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Outstanding Balance */}
+                    <div className={`rounded-xl border px-4 py-3.5 flex flex-col gap-1 ${
+                      parseMoneyString(orgCreditBalance?.outstandingBalance) > 0
+                        ? 'bg-rose-50 border-rose-100'
+                        : 'bg-gray-50 border-gray-100'
+                    }`}>
+                      <p className={`text-[10px] font-semibold uppercase tracking-wider ${
+                        parseMoneyString(orgCreditBalance?.outstandingBalance) > 0 ? 'text-rose-400' : 'text-gray-400'
+                      }`}>Outstanding</p>
+                      {orgCreditLoading ? (
+                        <div className="h-5 w-3/4 rounded bg-rose-200 animate-pulse mt-0.5" />
+                      ) : (
+                        <p className={`text-sm font-bold tabular-nums ${
+                          parseMoneyString(orgCreditBalance?.outstandingBalance) > 0 ? 'text-rose-700' : 'text-gray-600'
+                        }`}>
+                          {formatCurrency(parseMoneyString(orgCreditBalance?.outstandingBalance))}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Credit usage progress bar */}
+                  {!orgCreditLoading && !orgCreditError && orgCreditBalance && (() => {
+                    const limit = parseMoneyString(orgCreditBalance.creditLimit);
+                    const outstanding = parseMoneyString(orgCreditBalance.outstandingBalance);
+                    if (limit <= 0) return null;
+                    const usedPct = Math.min(100, Math.round((outstanding / limit) * 100));
+                    const barColor = usedPct >= 80 ? 'bg-rose-500' : usedPct >= 50 ? 'bg-amber-400' : 'bg-emerald-500';
+                    return (
+                      <div>
+                        <div className="flex justify-between text-[11px] text-gray-400 mb-1.5">
+                          <span>Mức sử dụng hạn mức</span>
+                          <span className="font-semibold tabular-nums">{usedPct}%</span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                            style={{ width: `${usedPct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Footer advisory */}
+                  {!orgCreditLoading && !orgCreditError ? (
+                    <div className={`rounded-lg px-3.5 py-2.5 flex gap-2 items-start text-xs ${
+                      parseMoneyString(orgCreditBalance?.outstandingBalance) > 0
+                        ? 'bg-rose-50 text-rose-700'
+                        : 'bg-emerald-50 text-emerald-700'
+                    }`}>
+                      {parseMoneyString(orgCreditBalance?.outstandingBalance) > 0 ? (
+                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      ) : (
+                        <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      )}
+                      <span>
+                        {parseMoneyString(orgCreditBalance?.outstandingBalance) > 0
+                          ? 'Khách đang có công nợ — nên yêu cầu thanh toán trước khi triển khai dịch vụ mới.'
+                          : 'Không có công nợ nổi bật. Có thể tiếp tục triển khai bình thường.'}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex-1">

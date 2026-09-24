@@ -1,22 +1,25 @@
 import { NextResponse } from 'next/server';
-import { protoCalculateMargin } from '@/lib/proto/ticket-client';
+import { protoCalculateQuotationMargin } from '@/lib/proto/quotation-client';
+import { getSession } from '@/lib/auth/session';
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const ticketId = body.ticket_id ?? body.ticketId ?? '';
-  const quotationId = body.quotation_id ?? body.quotationId ?? '';
   const totalAmount = body.total_amount ?? body.totalAmount ?? '0';
   const items = body.items ?? '[]';
+  const taxAmount = body.tax_amount ?? body.taxAmount ?? undefined;
 
-  if (!ticketId) {
-    return NextResponse.json({ error: 'ticket_id is required' }, { status: 400 });
-  }
+  // Get creator_id from session
+  let creatorId: string | undefined;
+  try {
+    const session = await getSession();
+    creatorId = session?.userId ?? undefined;
+  } catch { /* no session */ }
 
-  const result = await protoCalculateMargin({
-    ticketId: String(ticketId),
-    quotationId: String(quotationId),
+  const result = await protoCalculateQuotationMargin({
     totalAmount: String(totalAmount),
     items: typeof items === 'string' ? items : JSON.stringify(items),
+    ...(creatorId ? { creatorId } : {}),
+    ...(taxAmount ? { taxAmount: String(taxAmount) } : {}),
   });
 
   if (!result.success || !result.response) {
@@ -25,8 +28,9 @@ export async function POST(req: Request) {
 
   const resp = result.response as Record<string, unknown>;
   return NextResponse.json({
-    gross_margin_percent: String(resp.grossMarginPercent ?? resp.gross_margin_percent ?? '0'),
+    margin_percent: String(resp.marginPercent ?? resp.margin_percent ?? '0'),
     net_profit: String(resp.netProfit ?? resp.net_profit ?? '0'),
-    total_cost: String(resp.totalCost ?? resp.total_cost ?? '0'),
+    expected_commission: resp.expectedCommission != null ? String(resp.expectedCommission) : undefined,
+    commission_rate: resp.commissionRate != null ? String(resp.commissionRate) : undefined,
   });
 }

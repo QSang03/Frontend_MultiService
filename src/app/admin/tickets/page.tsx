@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import { TopHeader } from '@/components/layout';
 import { 
   Search, AlertTriangle, MessageSquare, Clock, FileText, 
@@ -18,43 +20,200 @@ import {
 import SubmitQuotationModal from '@/components/SubmitQuotationModal';
 import AssignTicketModal from '@/components/AssignTicketModal';
 
-// Mock chat messages (will be replaced with real data later)
-const mockMessages = [
-  {
-    id: 1,
-    sender: 'Manager John',
-    role: 'Customer',
-    message: 'Temperature is rising fast, please hurry.',
-    time: '10:15 AM',
-    isCustomer: true,
-  },
-  {
-    id: 2,
-    sender: 'Nguyen Van A',
-    role: 'Technical',
-    message: 'I am stuck in traffic. Will be there in 20 mins.',
-    time: '10:20 AM',
-    isCustomer: false,
-  },
-  {
-    id: 3,
-    sender: 'Manager John',
-    role: 'Customer',
-    message: 'That is too late! Our SLA is 30 mins response.',
-    time: '10:22 AM',
-    isCustomer: true,
-  },
-  {
-    id: 4,
-    sender: 'Nguyen Van A',
-    role: 'Technical',
-    message: 'Relax, I know what I am doing.',
-    time: '10:23 AM',
-    isCustomer: false,
-  },
-];
+interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  content: string;
+  metadata: string;
+  messageType: number;
+  createdAt?: string;
+  time: string;
+  role: 'Client' | 'Sale' | 'Tech' | 'System';
+}
+
+type ChatAttachmentMeta = {
+  fileId?: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+  url?: string;
+  dataUrl?: string;
+};
+
+function parseAttachmentMeta(metadata?: string): ChatAttachmentMeta | null {
+  const raw = String(metadata ?? '').trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return {
+      fileId: parsed.fileId == null ? (parsed.file_id == null ? undefined : String(parsed.file_id)) : String(parsed.fileId),
+      fileName: parsed.file_name == null ? (parsed.fileName == null ? undefined : String(parsed.fileName)) : String(parsed.file_name),
+      mimeType: parsed.mime_type == null ? (parsed.mimeType == null ? undefined : String(parsed.mimeType)) : String(parsed.mime_type),
+      size: parsed.file_size == null ? (parsed.size == null ? undefined : Number(parsed.size)) : Number(parsed.file_size),
+      url: parsed.url == null ? (parsed.downloadUrl == null ? (parsed.download_url == null ? undefined : String(parsed.download_url)) : String(parsed.downloadUrl)) : String(parsed.url),
+      dataUrl: parsed.dataUrl == null ? undefined : String(parsed.dataUrl),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getFileExtension(fileName: string): string {
+  const idx = fileName.lastIndexOf('.');
+  return idx >= 0 ? fileName.slice(idx + 1).toLowerCase() : '';
+}
+
+const FILE_ICON_MAP: Record<string, { icon: string; bg: string; color: string }> = {
+  pdf: { icon: 'PDF', bg: 'bg-red-100', color: 'text-red-600' },
+  doc: { icon: 'DOC', bg: 'bg-blue-100', color: 'text-blue-600' },
+  docx: { icon: 'DOC', bg: 'bg-blue-100', color: 'text-blue-600' },
+  xls: { icon: 'XLS', bg: 'bg-green-100', color: 'text-green-600' },
+  xlsx: { icon: 'XLS', bg: 'bg-green-100', color: 'text-green-600' },
+  csv: { icon: 'CSV', bg: 'bg-green-100', color: 'text-green-600' },
+  ppt: { icon: 'PPT', bg: 'bg-orange-100', color: 'text-orange-600' },
+  pptx: { icon: 'PPT', bg: 'bg-orange-100', color: 'text-orange-600' },
+  zip: { icon: 'ZIP', bg: 'bg-yellow-100', color: 'text-yellow-700' },
+  txt: { icon: 'TXT', bg: 'bg-gray-100', color: 'text-gray-600' },
+  mp4: { icon: 'MP4', bg: 'bg-purple-100', color: 'text-purple-600' },
+  mp3: { icon: 'MP3', bg: 'bg-pink-100', color: 'text-pink-600' },
+};
+const DEFAULT_FILE_ICON = { icon: 'FILE', bg: 'bg-gray-100', color: 'text-gray-500' };
+function getFileIcon(ext: string) { return FILE_ICON_MAP[ext] ?? DEFAULT_FILE_ICON; }
+
+function extractFileIdFromS3Url(url: string): string {
+  try {
+    return new URL(url).pathname.split('/').pop() ?? '';
+  } catch { return ''; }
+}
+
+function isPresignedUrlExpiringSoon(url: string, thresholdMs = 5 * 60 * 1000): boolean {
+  try {
+    const params = new URL(url).searchParams;
+    const dateStr = params.get('X-Amz-Date');
+    const expiresStr = params.get('X-Amz-Expires');
+    if (!dateStr || !expiresStr) return false;
+    const signedAt = Date.UTC(
+      parseInt(dateStr.slice(0, 4)),
+      parseInt(dateStr.slice(4, 6)) - 1,
+      parseInt(dateStr.slice(6, 8)),
+      parseInt(dateStr.slice(9, 11)),
+      parseInt(dateStr.slice(11, 13)),
+      parseInt(dateStr.slice(13, 15)),
+    );
+    const expiresAt = signedAt + parseInt(expiresStr) * 1000;
+    return Date.now() + thresholdMs >= expiresAt;
+  } catch { return false; }
+}
+
+interface AdminChatMsgProps {
+  msg: ChatMessage;
+  attachmentUrl: string;
+  attachmentFileName: string;
+  attachmentFileId: string;
+  attachmentSize?: number;
+}
+
+const AdminChatMessageItem = React.memo(function AdminChatMessageItem({
+  msg, attachmentUrl, attachmentFileName, attachmentFileId, attachmentSize,
+}: AdminChatMsgProps) {
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[80%]">
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className={cn(
+            'text-xs font-bold',
+            msg.role === 'Client' ? 'text-gray-900' :
+            msg.role === 'Tech' ? 'text-purple-600' :
+            msg.role === 'System' ? 'text-gray-400' :
+            'text-blue-600'
+          )}>
+            {msg.senderName}
+            <span className={cn(
+              'ml-1 font-normal text-[10px] px-1.5 py-0.5 rounded',
+              msg.role === 'Client' ? 'bg-yellow-100 text-yellow-700' :
+              msg.role === 'Tech' ? 'bg-green-100 text-green-700' :
+              msg.role === 'System' ? 'bg-gray-100 text-gray-500' :
+              'bg-blue-100 text-blue-700'
+            )}>
+              {msg.role}
+            </span>
+          </span>
+          <span className="text-xs text-gray-400">{msg.time}</span>
+        </div>
+        {msg.messageType === 2 && attachmentUrl ? (
+          <div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={attachmentUrl}
+              alt={msg.content || 'image'}
+              loading="lazy"
+              decoding="async"
+              width={320}
+              height={240}
+              className="max-h-60 max-w-xs w-auto rounded-xl object-cover cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => window.open(attachmentUrl, '_blank')}
+            />
+          </div>
+        ) : msg.messageType === 2 && attachmentFileId ? (
+          <div>
+            <div className="h-40 w-60 rounded-xl animate-pulse bg-gray-200" />
+            <p className="text-xs text-gray-400 mt-1">Đang tải ảnh...</p>
+          </div>
+        ) : msg.messageType === 3 && attachmentUrl ? (
+          <a
+            href={attachmentUrl}
+            download={attachmentFileName}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-3 p-3 rounded-xl bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors max-w-xs"
+          >
+            {(() => {
+              const ext = getFileExtension(attachmentFileName);
+              const fi = getFileIcon(ext);
+              return (
+                <div className={`flex-shrink-0 w-11 h-11 rounded-lg flex items-center justify-center ${fi.bg}`}>
+                  <span className={`text-xs font-bold ${fi.color}`}>{fi.icon}</span>
+                </div>
+              );
+            })()}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 truncate">{attachmentFileName}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{formatBytes(attachmentSize)}</p>
+            </div>
+          </a>
+        ) : (msg.messageType === 2 || msg.messageType === 3) && attachmentFileId ? (
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white border border-gray-200 max-w-xs">
+            <div className="w-11 h-11 rounded-lg bg-gray-100 animate-pulse flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="h-4 w-32 bg-gray-200 rounded animate-pulse" />
+              <div className="h-3 w-16 bg-gray-100 rounded animate-pulse mt-1" />
+            </div>
+          </div>
+        ) : (
+          <div className={cn(
+            'p-3 rounded-2xl text-sm leading-relaxed shadow-sm break-words',
+            msg.role === 'System'
+              ? 'bg-gray-50 text-gray-500 italic border border-gray-200 rounded-tl-none'
+              : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none'
+          )}>
+            {msg.content}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
 
 export default function TicketMonitorPage() {
+  const router = useRouter();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,10 +232,28 @@ export default function TicketMonitorPage() {
   // Action loading states
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatRoomId, setChatRoomId] = useState('');
+  const [chatNextPageToken, setChatNextPageToken] = useState('');
+  const [loadingMoreChat, setLoadingMoreChat] = useState(false);
+  const [attachmentUrlByFileId, setAttachmentUrlByFileId] = useState<Record<string, string>>({});
+  const [urlRefreshTick, setUrlRefreshTick] = useState(0);
+  const attachmentUrlByFileIdRef = useRef(attachmentUrlByFileId);
+  attachmentUrlByFileIdRef.current = attachmentUrlByFileId;
+  const resolvingFileIdsRef = useRef<Set<string>>(new Set());
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const initialScrollDoneRef = useRef(false);
+  const autoSelectedRef = useRef(false);
+  const scrollRafRef = useRef(0);
+
   const fetchTickets = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
+      const authReady = await ensureAuthReady();
+      if (!authReady) { router.replace('/login'); return; }
       let url = '/api/admin/tickets?page_size=100';
       if (statusFilter !== null) {
         url += `&status=${statusFilter}`;
@@ -87,8 +264,9 @@ export default function TicketMonitorPage() {
       }
       const data = await res.json();
       setTickets(data.tickets || []);
-      // Auto-select first ticket if none selected
-      if (data.tickets?.length > 0 && !selectedTicket) {
+      // Auto-select first ticket only once
+      if (data.tickets?.length > 0 && !autoSelectedRef.current) {
+        autoSelectedRef.current = true;
         setSelectedTicket(data.tickets[0]);
       }
     } catch (err) {
@@ -96,11 +274,162 @@ export default function TicketMonitorPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, selectedTicket]);
+  }, [statusFilter, router]);
 
   useEffect(() => {
     fetchTickets();
   }, [fetchTickets]);
+
+  const selectedTicketRef = useRef<Ticket | null>(null);
+  useEffect(() => {
+    selectedTicketRef.current = selectedTicket;
+  }, [selectedTicket]);
+
+  const loadChatForTicket = useCallback(async (ticketId: string) => {
+    if (!ticketId) return;
+    setChatLoading(true);
+    setChatMessages([]);
+    setChatRoomId('');
+    setChatNextPageToken('');
+    try {
+      const roomRes = await fetch(`/api/sale/chat/ticket-room?ticket_id=${encodeURIComponent(ticketId)}`);
+      const roomJson = await roomRes.json().catch(() => ({}));
+      if (!roomRes.ok || !roomJson?.room?.id) {
+        return;
+      }
+      const roomId = String(roomJson.room.id ?? '');
+      setChatRoomId(roomId);
+
+      const msgRes = await fetch(`/api/sale/chat/messages?room_id=${encodeURIComponent(roomId)}&page_size=50`);
+      const msgJson = await msgRes.json().catch(() => ({}));
+      if (!msgRes.ok) return;
+
+      const ticket = selectedTicketRef.current;
+      const raw: Record<string, unknown>[] = Array.isArray(msgJson?.messages) ? msgJson.messages : [];
+      const mapped = raw.map((item): ChatMessage => {
+        const senderId = String(item.senderId ?? item.sender_id ?? '').trim();
+        const msgType = Number(item.messageType ?? item.message_type ?? 0);
+        let role: ChatMessage['role'] = 'Sale';
+        if (msgType === 4) role = 'System';
+        else if (ticket && (senderId === ticket.orgId || senderId === ticket.creatorId)) role = 'Client';
+        else if (ticket && senderId === ticket.assignedTechId) role = 'Tech';
+        const createdAt = String(item.createdAt ?? '');
+        const time = createdAt ? new Date(createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
+        return {
+          id: String(item.id ?? ''),
+          senderId,
+          senderName: String(item.senderName ?? item.sender_name ?? senderId.slice(0, 8)),
+          content: String(item.content ?? ''),
+          metadata: String(item.metadata ?? ''),
+          messageType: msgType,
+          createdAt,
+          role,
+          time,
+        };
+      });
+      setChatMessages(mapped);
+      setChatNextPageToken(String(msgJson?.next_page_token ?? ''));
+    } finally {
+      setChatLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedTicket?.id) {
+      setChatMessages([]);
+      setChatRoomId('');
+      setChatNextPageToken('');
+      return;
+    }
+    initialScrollDoneRef.current = false;
+    void loadChatForTicket(selectedTicket.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTicket?.id]);
+
+  useEffect(() => {
+    if (!chatLoading && chatMessages.length > 0 && !initialScrollDoneRef.current) {
+      initialScrollDoneRef.current = true;
+      requestAnimationFrame(() => {
+        const el = chatScrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    }
+  }, [chatLoading, chatMessages.length]);
+
+  // Tick every 2 min to trigger proactive URL refresh
+  useEffect(() => {
+    const interval = setInterval(() => setUrlRefreshTick((t) => t + 1), 120_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Resolve & refresh presigned URLs for attachment messages
+  useEffect(() => {
+    const currentUrls = attachmentUrlByFileIdRef.current;
+    const fileIds = new Set<string>();
+
+    chatMessages.forEach((msg) => {
+      if (msg.messageType !== 2 && msg.messageType !== 3) return;
+      const att = parseAttachmentMeta(msg.metadata);
+      const fileId = String(att?.fileId ?? '').trim();
+      const urlInMeta = String(att?.url ?? '').trim();
+
+      if (fileId && !urlInMeta) {
+        const cached = currentUrls[fileId];
+        if (!cached || isPresignedUrlExpiringSoon(cached)) fileIds.add(fileId);
+      }
+      if (urlInMeta && isPresignedUrlExpiringSoon(urlInMeta)) {
+        const fid = extractFileIdFromS3Url(urlInMeta);
+        if (fid) {
+          const cached = currentUrls[fid];
+          if (!cached || isPresignedUrlExpiringSoon(cached)) fileIds.add(fid);
+        }
+      }
+    });
+
+    // Also refresh any already-cached URL that is expiring soon
+    Object.entries(currentUrls).forEach(([fid, url]) => {
+      if (isPresignedUrlExpiringSoon(url)) fileIds.add(fid);
+    });
+
+    const toResolve = Array.from(fileIds).filter((id) => !resolvingFileIdsRef.current.has(id));
+    if (toResolve.length === 0) return;
+    toResolve.forEach((id) => resolvingFileIdsRef.current.add(id));
+
+    void Promise.allSettled(
+      toResolve.map((fileId) =>
+        fetch(`/api/sale/chat/download-url?file_id=${encodeURIComponent(fileId)}`)
+          .then((r) => r.json().catch(() => ({}) as Record<string, unknown>).then((j: Record<string, unknown>) => ({ ok: r.ok, json: j, fileId })))
+          .then(({ ok, json, fileId: fid }) => {
+            resolvingFileIdsRef.current.delete(fid);
+            if (!ok) return null;
+            const downloadUrl = String(json?.download_url ?? json?.url ?? '').trim();
+            return downloadUrl ? { fid, downloadUrl } : null;
+          })
+          .catch(() => { resolvingFileIdsRef.current.delete(fileId); return null; })
+      )
+    ).then((results) => {
+      const updates: Record<string, string> = {};
+      for (const r of results) {
+        if (r.status === 'fulfilled' && r.value) updates[r.value.fid] = r.value.downloadUrl;
+      }
+      if (Object.keys(updates).length > 0) setAttachmentUrlByFileId((prev) => ({ ...prev, ...updates }));
+    });
+  }, [chatMessages, urlRefreshTick]);
+
+  const processedMessages = useMemo(() => {
+    return [...chatMessages].reverse().map((msg) => {
+      const att = parseAttachmentMeta(msg.metadata);
+      const fileId = String(att?.fileId ?? '').trim();
+      const fileIdFromMetaUrl = att?.url ? extractFileIdFromS3Url(att.url) : '';
+      const url = String(
+        (fileIdFromMetaUrl && attachmentUrlByFileId[fileIdFromMetaUrl])
+          ? attachmentUrlByFileId[fileIdFromMetaUrl]
+          : att?.url ?? att?.dataUrl ?? (fileId ? attachmentUrlByFileId[fileId] ?? '' : '')
+      );
+      const fileName = String(att?.fileName ?? msg.content ?? 'attachment');
+      return { msg, attachmentUrl: url, attachmentFileName: fileName, attachmentFileId: fileId, attachmentSize: att?.size };
+    });
+  }, [chatMessages, attachmentUrlByFileId]);
 
   const filteredTickets = tickets.filter((ticket) => {
     // Search filter
@@ -137,7 +466,61 @@ export default function TicketMonitorPage() {
     return true;
   });
 
-  const handleUpdateStatus = async (ticketId: string, status: TicketStatus) => {
+  const handleLoadMoreChat = async () => {
+    if (!chatRoomId || !chatNextPageToken || loadingMoreChat) return;
+    setLoadingMoreChat(true);
+    try {
+      const res = await fetch(`/api/sale/chat/messages?room_id=${encodeURIComponent(chatRoomId)}&page_size=30&page_token=${encodeURIComponent(chatNextPageToken)}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const ticket = selectedTicketRef.current;
+      const raw: Record<string, unknown>[] = Array.isArray(json?.messages) ? json.messages : [];
+      const mapped = raw.map((item): ChatMessage => {
+        const senderId = String(item.senderId ?? item.sender_id ?? '').trim();
+        const msgType = Number(item.messageType ?? item.message_type ?? 0);
+        let role: ChatMessage['role'] = 'Sale';
+        if (msgType === 4) role = 'System';
+        else if (ticket && (senderId === ticket.orgId || senderId === ticket.creatorId)) role = 'Client';
+        else if (ticket && senderId === ticket.assignedTechId) role = 'Tech';
+        const createdAt = String(item.createdAt ?? '');
+        const time = createdAt ? new Date(createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
+        return {
+          id: String(item.id ?? ''),
+          senderId,
+          senderName: String(item.senderName ?? item.sender_name ?? senderId.slice(0, 8)),
+          content: String(item.content ?? ''),
+          metadata: String(item.metadata ?? ''),
+          messageType: msgType,
+          createdAt,
+          role,
+          time,
+        };
+      });
+      setChatMessages((prev) => {
+        const ids = new Set(prev.map((m) => m.id));
+        return [...mapped.filter((m) => !ids.has(m.id)), ...prev];
+      });
+      setChatNextPageToken(String(json?.next_page_token ?? ''));
+    } finally {
+      setLoadingMoreChat(false);
+    }
+  };
+
+  const handleChatScroll = () => {
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0;
+      const container = chatScrollRef.current;
+      if (!container) return;
+      if (loadingMoreChat) return;
+      if (!chatNextPageToken) return;
+      if (container.scrollTop <= 80) {
+        void handleLoadMoreChat();
+      }
+    });
+  };
+
+  const handleUpdateStatus= async (ticketId: string, status: TicketStatus) => {
     setActionLoading('status');
     try {
       const res = await fetch('/api/admin/tickets', {
@@ -575,42 +958,61 @@ export default function TicketMonitorPage() {
                       </div>
 
                       {/* Chat Messages */}
-                      <div className="space-y-4 max-h-[400px] overflow-y-auto">
-                        {mockMessages.map((msg) => (
-                          <div
-                            key={msg.id}
-                            className={cn('flex', msg.isCustomer ? 'justify-start' : 'justify-end')}
-                          >
-                            <div className={cn('max-w-md', msg.isCustomer ? 'pr-12' : 'pl-12')}>
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="text-sm font-medium text-gray-900">{msg.sender}</span>
-                                <span className={cn(
-                                  'px-2 py-0.5 text-xs rounded',
-                                  msg.isCustomer ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'
-                                )}>
-                                  {msg.role}
-                                </span>
+                      <div className="relative h-[420px]">
+                        <div
+                          ref={chatScrollRef}
+                          onScroll={handleChatScroll}
+                          style={{ willChange: 'scroll-position' }}
+                          className="absolute inset-0 overflow-y-auto p-4 flex flex-col gap-4"
+                        >
+                        {chatLoading ? (
+                          <div className="space-y-3 py-2">
+                            {[1, 2, 3].map((i) => (
+                              <div key={i} className="flex justify-start">
+                                <div className="max-w-xs pr-12">
+                                  <div className="h-3 w-20 bg-gray-200 animate-pulse rounded mb-2" />
+                                  <div className="h-10 w-48 bg-gray-200 animate-pulse rounded-lg" />
+                                </div>
                               </div>
-                              <div
-                                className={cn(
-                                  'p-3 rounded-lg text-sm',
-                                  msg.isCustomer
-                                    ? 'bg-gray-100 text-gray-800'
-                                    : 'bg-blue-600 text-white'
-                                )}
-                              >
-                                {msg.message}
-                              </div>
-                              <p className={cn(
-                                'text-xs text-gray-400 mt-1',
-                                msg.isCustomer ? 'text-left' : 'text-right'
-                              )}>
-                                {msg.time}
-                              </p>
-                            </div>
+                            ))}
                           </div>
-                        ))}
-                      </div>
+                        ) : !chatRoomId ? (
+                          <p className="text-sm text-gray-500 py-4 text-center">Ticket này chưa có chat room.</p>
+                        ) : processedMessages.length === 0 ? (
+                          <p className="text-sm text-gray-500 py-4 text-center">Chưa có tin nhắn trong room này.</p>
+                        ) : (
+                          <>
+                            <div className="flex justify-center py-2">
+                              {loadingMoreChat ? (
+                                <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  Đang tải...
+                                </span>
+                              ) : chatNextPageToken ? (
+                                <button
+                                  onClick={() => void handleLoadMoreChat()}
+                                  className="text-xs text-blue-600 hover:text-blue-700 font-medium px-3 py-1 rounded-full border border-blue-200 hover:bg-blue-50 transition-colors"
+                                >
+                                  Tải thêm tin nhắn cũ hơn
+                                </button>
+                              ) : (
+                                <span className="text-xs text-gray-400">Đã hiển thị toàn bộ hội thoại</span>
+                              )}
+                            </div>
+                            {processedMessages.map(({ msg, attachmentUrl, attachmentFileName, attachmentFileId, attachmentSize }) => (
+                              <AdminChatMessageItem
+                                key={msg.id}
+                                msg={msg}
+                                attachmentUrl={attachmentUrl}
+                                attachmentFileName={attachmentFileName}
+                                attachmentFileId={attachmentFileId}
+                                attachmentSize={attachmentSize}
+                              />
+                            ))}
+                          </>
+                        )}
+                        </div>{/* end scroll container */}
+                      </div>{/* end relative wrapper */}
                     </>
                   )}
 

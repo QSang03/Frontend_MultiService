@@ -38,6 +38,10 @@ export const ROUTES = {
   TECH_INVENTORY: '/tech/inventory',
   TECH_KNOWLEDGE: '/tech/knowledge-base',
   TECH_PROFILE: '/tech/profile',
+  // Customer B2C portal
+  B2C_DASHBOARD: '/customer/b2c/dashboard',
+  // Customer B2B portal
+  B2B_DASHBOARD: '/customer/b2b/dashboard',
   // Legacy (redirected to admin portal as default)
   SERVICES: '/admin/service-config',
   ORDERS: '/admin/orders',
@@ -103,6 +107,29 @@ export function getDashboardByRole(role?: string | number): string {
   const r = String(role).toUpperCase();
   console.log('[getDashboardByRole] Input role:', role, '| Uppercased:', r);
   
+  // Customer B2C (USER_ROLE_CUSTOMER = 1)
+  if (
+    r === USER_ROLES.CUSTOMER ||
+    r === 'CUSTOMER' ||
+    r === USER_ROLES.CUSTOMER_NUM
+  ) {
+    console.log('[getDashboardByRole] Matched CUSTOMER, returning:', ROUTES.B2C_DASHBOARD);
+    return ROUTES.B2C_DASHBOARD;
+  }
+
+  // Customer B2B: OrgAdmin (USER_ROLE_ORG_ADMIN = 2) and Member (USER_ROLE_MEMBER = 4)
+  if (
+    r === USER_ROLES.ORG_ADMIN ||
+    r === 'ORG_ADMIN' ||
+    r === USER_ROLES.ORG_ADMIN_NUM ||
+    r === USER_ROLES.MEMBER ||
+    r === 'MEMBER' ||
+    r === USER_ROLES.MEMBER_NUM
+  ) {
+    console.log('[getDashboardByRole] Matched ORG_ADMIN/MEMBER, returning:', ROUTES.B2B_DASHBOARD);
+    return ROUTES.B2B_DASHBOARD;
+  }
+
   // Admin roles (USER_ROLE_ADMIN = 8)
   if (
     r === USER_ROLES.ADMIN ||
@@ -113,7 +140,7 @@ export function getDashboardByRole(role?: string | number): string {
     console.log('[getDashboardByRole] Matched ADMIN, returning:', ROUTES.ADMIN_DASHBOARD);
     return ROUTES.ADMIN_DASHBOARD;
   }
-  
+
   // Sale roles (USER_ROLE_SALE = 5)
   if (
     r === USER_ROLES.SALE ||
@@ -124,7 +151,7 @@ export function getDashboardByRole(role?: string | number): string {
     console.log('[getDashboardByRole] Matched SALE, returning:', ROUTES.SALE_DASHBOARD);
     return ROUTES.SALE_DASHBOARD;
   }
-  
+
   // Tech roles (USER_ROLE_TECH_SOFTWARE = 6, USER_ROLE_TECH_HARDWARE = 7)
   if (
     r === USER_ROLES.TECH ||
@@ -138,17 +165,13 @@ export function getDashboardByRole(role?: string | number): string {
     console.log('[getDashboardByRole] Matched TECH, returning:', ROUTES.TECH_DASHBOARD);
     return ROUTES.TECH_DASHBOARD;
   }
-  
-  // Manager/Member/OrgAdmin - default to admin for now
+
+  // Manager - default to admin
   if (
     r === USER_ROLES.MANAGER ||
-    r === USER_ROLES.MEMBER ||
-    r === USER_ROLES.ORG_ADMIN ||
-    r === USER_ROLES.MANAGER_NUM ||
-    r === USER_ROLES.MEMBER_NUM ||
-    r === USER_ROLES.ORG_ADMIN_NUM
+    r === USER_ROLES.MANAGER_NUM
   ) {
-    console.log('[getDashboardByRole] Matched MANAGER/MEMBER/ORG_ADMIN, returning:', ROUTES.ADMIN_DASHBOARD);
+    console.log('[getDashboardByRole] Matched MANAGER, returning:', ROUTES.ADMIN_DASHBOARD);
     return ROUTES.ADMIN_DASHBOARD;
   }
   

@@ -197,7 +197,9 @@ export default function ContractPage() {
         }}
         onSendForSignature={handleSendForSignature}
         onActivate={handleActivateContract}
-        onCancel={handleOpenCancelModal as unknown as (contract: Contract, reason: string) => Promise<void>}
+        onCancel={async (contract) => {
+          handleOpenCancelModal(contract);
+        }}
         onRenew={handleRenewContract}
         isLoading={modalLoading}
       />

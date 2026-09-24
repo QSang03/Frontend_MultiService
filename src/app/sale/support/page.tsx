@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo, memo, type ChangeEvent, type KeyboardEvent } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useRouter } from 'next/navigation';
+import { ensureAuthReadyWithUserId } from '@/lib/auth/ensure-auth-ready';
 import { 
   Search, Plus, MoreVertical, Paperclip, Send, ChevronDown, Volume2, VolumeX,
   Clock, CheckCircle2, Calculator, FileText, SendHorizontal, Eye, Activity, AlertTriangle, Loader2
@@ -281,7 +283,7 @@ const ChatMessageItem = memo(function ChatMessageItem({ msg, attachmentUrl, atta
             </div>
           </div>
         ) : (
-          <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm ${
+          <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-sm break-words overflow-hidden ${
             msg.isMe
               ? 'bg-blue-600 text-white rounded-tr-none'
               : 'bg-white border border-gray-200 text-gray-800 rounded-tl-none'
@@ -313,14 +315,19 @@ export default function SupportTrackingPage() {
   const [chatNextPageToken, setChatNextPageToken] = useState('');
   const [loadingChat, setLoadingChat] = useState(false);
   const [loadingMoreChat, setLoadingMoreChat] = useState(false);
+  const [chatConnected, setChatConnected] = useState(false);
+  const chatEverConnectedRef = useRef(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [attachmentUrlByFileId, setAttachmentUrlByFileId] = useState<Record<string, string>>({});
   const [urlRefreshTick, setUrlRefreshTick] = useState(0);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [unreadNewCount, setUnreadNewCount] = useState(0);
   const [enableNewMessageSound, setEnableNewMessageSound] = useState(true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const ticketListRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const previousChatLengthRef = useRef(0);
@@ -332,6 +339,8 @@ export default function SupportTrackingPage() {
   const attachmentUrlByFileIdRef = useRef(attachmentUrlByFileId);
   attachmentUrlByFileIdRef.current = attachmentUrlByFileId;
   const chatEventSourceRef = useRef<EventSource | null>(null);
+  const ticketsInitFetchedRef = useRef(false);
+  const statusFilterMountedRef = useRef(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [loadingDiscovery, setLoadingDiscovery] = useState(false);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
@@ -448,6 +457,11 @@ export default function SupportTrackingPage() {
     }
   };
 
+  // Returns true if a presigned S3 URL will expire within thresholdMs (proactive refresh)
+  const isPresignedUrlExpiringSoon = (url: string, thresholdMs = 5 * 60 * 1000): boolean => {
+    return isPresignedUrlExpired(url, thresholdMs);
+  };
+
   const parseAttachmentMeta = parseAttachmentMetaStatic;
 
   const mergeChatMessages = useCallback((current: ChatUiMessage[], incoming: ChatUiMessage[]): ChatUiMessage[] => {
@@ -500,27 +514,6 @@ export default function SupportTrackingPage() {
     } catch {
     }
   }, [enableNewMessageSound]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadCurrentUserId = async () => {
-      try {
-        const response = await fetch('/api/auth/me', { credentials: 'include' });
-        const json = await response.json().catch(() => ({}));
-        if (!response.ok || cancelled) return;
-        const userId = String(json?.user_id ?? '').trim();
-        if (userId) setCurrentUserId(userId);
-      } catch {
-      }
-    };
-
-    void loadCurrentUserId();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const mapChatMessageToUi = useCallback((raw: Record<string, unknown>): ChatUiMessage => {
     const senderId = String(raw.senderId ?? raw.sender_id ?? '').trim();
@@ -665,6 +658,9 @@ export default function SupportTrackingPage() {
       setLoadingMoreTickets(true);
     } else {
       setLoadingTickets(true);
+      const { ok: authReady, userId } = await ensureAuthReadyWithUserId();
+      if (!authReady) { router.replace('/login'); return; }
+      if (userId) setCurrentUserId((prev) => prev || userId);
     }
 
     try {
@@ -834,6 +830,7 @@ export default function SupportTrackingPage() {
     };
 
     void loadTicketsPage({ pageToken: '', append: false, orgId: ownerId, status: statusFilter });
+    ticketsInitFetchedRef.current = true;
     void hydrateFromTicketId();
 
     setFlowMessage(
@@ -846,7 +843,7 @@ export default function SupportTrackingPage() {
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
-    if (tickets.length === 0 && !loadingTickets) {
+    if (!ticketsInitFetchedRef.current && tickets.length === 0 && !loadingTickets) {
       void loadTicketsPage({ pageToken: '', append: false, orgId: contextOwnerId || undefined, status: statusFilter });
     }
   }, [contextOwnerId]);
@@ -854,6 +851,10 @@ export default function SupportTrackingPage() {
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
+    if (!statusFilterMountedRef.current) {
+      statusFilterMountedRef.current = true;
+      return;
+    }
     setTicketNextPageToken('');
     void loadTicketsPage({ pageToken: '', append: false, orgId: contextOwnerId || undefined, status: statusFilter });
   }, [statusFilter]);
@@ -1011,6 +1012,7 @@ export default function SupportTrackingPage() {
         return [{ ...mapped, isMe: true }, ...prev];
       });
       setMessageInput('');
+      if (textareaRef.current) { textareaRef.current.style.height = 'auto'; }
     } catch {
     } finally {
       setSendingMessage(false);
@@ -1026,6 +1028,7 @@ export default function SupportTrackingPage() {
     void handleSendChatMessage();
   };
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!selectedTicket?.id) {
       setChatRoomId('');
@@ -1045,7 +1048,8 @@ export default function SupportTrackingPage() {
     needsInitialScrollRef.current = false;
     previousChatLengthRef.current = 0;
     void loadChatForTicket(selectedTicket.id);
-  }, [selectedTicket?.id, loadChatForTicket]);
+  }, [selectedTicket?.id]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = chatScrollRef.current;
@@ -1108,10 +1112,16 @@ export default function SupportTrackingPage() {
       chatEventSourceRef.current = null;
     }
 
-    if (!chatRoomId) return;
+    if (!chatRoomId) { setChatConnected(false); chatEverConnectedRef.current = false; return; }
 
     const eventSource = new EventSource(`/api/sale/chat/stream?room_id=${encodeURIComponent(chatRoomId)}`);
     chatEventSourceRef.current = eventSource;
+
+    eventSource.onopen = () => {
+      setChatConnected(true);
+      chatEverConnectedRef.current = true;
+    };
+    eventSource.onerror = () => setChatConnected(false);
 
     const onMessage = (event: MessageEvent<string>) => {
       try {
@@ -1136,9 +1146,9 @@ export default function SupportTrackingPage() {
     };
   }, [chatRoomId, chatRoomOrgId, chatRoomType, chatRoomTicketId, mapChatMessageToUi]);
 
-  // Ticker: every 60s nudge the URL-resolution effect so expired presigned URLs get refreshed
+  // Ticker: every 2 min nudge the URL-resolution effect so soon-to-expire presigned URLs get refreshed proactively
   useEffect(() => {
-    const interval = setInterval(() => setUrlRefreshTick((t) => t + 1), 60_000);
+    const interval = setInterval(() => setUrlRefreshTick((t) => t + 1), 120_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1152,20 +1162,20 @@ export default function SupportTrackingPage() {
 
       if (fileId && !urlInMeta) {
         const cached = currentUrls[fileId];
-        if (!cached || isPresignedUrlExpired(cached)) fileIds.add(fileId);
+        if (!cached || isPresignedUrlExpiringSoon(cached)) fileIds.add(fileId);
       }
 
-      if (urlInMeta && isPresignedUrlExpired(urlInMeta)) {
+      if (urlInMeta && isPresignedUrlExpiringSoon(urlInMeta)) {
         const fid = extractFileIdFromS3Url(urlInMeta);
         if (fid) {
           const cached = currentUrls[fid];
-          if (!cached || isPresignedUrlExpired(cached)) fileIds.add(fid);
+          if (!cached || isPresignedUrlExpiringSoon(cached)) fileIds.add(fid);
         }
       }
     });
 
     Object.entries(currentUrls).forEach(([fid, url]) => {
-      if (isPresignedUrlExpired(url)) fileIds.add(fid);
+      if (isPresignedUrlExpiringSoon(url)) fileIds.add(fid);
     });
 
     const toResolve = Array.from(fileIds).filter((id) => !resolvingFileIdsRef.current.has(id));
@@ -1215,6 +1225,7 @@ export default function SupportTrackingPage() {
 
     const isImage = file.type.startsWith('image/');
     setUploadingAttachment(true);
+    setUploadProgress(0);
     try {
       // Step 1: Get presigned upload URL from backend
       // Sale/Tech/Admin (system users) do NOT send organization_id for file/image uploads
@@ -1237,13 +1248,19 @@ export default function SupportTrackingPage() {
       const uploadUrl = String(getUrlJson.upload_url);
       const fileId = String(getUrlJson.file_id);
 
-      // Step 2: Upload file directly to S3 using the presigned URL
-      const s3Res = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
-        body: file,
+      // Step 2: Upload file directly to S3 using the presigned URL (XHR for progress tracking)
+      const s3Ok = await new Promise<boolean>((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () => { setUploadProgress(100); resolve(xhr.status >= 200 && xhr.status < 300); };
+        xhr.onerror = () => resolve(false);
+        xhr.send(file);
       });
-      if (!s3Res.ok) {
+      if (!s3Ok) {
         setFlowMessage('Upload tệp lên storage thất bại.');
         addToast('Upload tệp lên storage thất bại', { type: 'error' });
         return;
@@ -1308,13 +1325,17 @@ export default function SupportTrackingPage() {
       }
 
       const mapped = mapChatMessageToUi(json.message as Record<string, unknown>);
-      setChatMessages((prev) => mergeChatMessages(prev, [{ ...mapped, isMe: true }]));
+      setChatMessages((prev) => {
+        if (prev.some((item) => item.id === mapped.id)) return prev;
+        return [{ ...mapped, isMe: true }, ...prev];
+      });
       addToast(isImage ? 'Đã gửi ảnh' : 'Đã gửi tệp', { type: 'success' });
     } catch {
       setFlowMessage('Lỗi kết nối khi gửi tệp đính kèm.');
       addToast('Lỗi mạng khi gửi tệp', { type: 'error' });
     } finally {
       setUploadingAttachment(false);
+      setUploadProgress(0);
     }
   };
 
@@ -1340,8 +1361,11 @@ export default function SupportTrackingPage() {
   const hasEffectiveContextId = !!effectiveContextId;
 
   const handleStatusChange = async (ticketId: string, status: Ticket['status']) => {
-    setTickets((prev) => prev.map((ticket) => (ticket.id === ticketId ? { ...ticket, status } : ticket)));
-    setSelectedTicket((prev) => (prev && prev.id === ticketId ? { ...prev, status } : prev));
+    // Save previous state for rollback on failure
+    let previousTickets: typeof tickets | null = null;
+    let previousSelectedTicket: typeof selectedTicket | null = null;
+    setTickets((prev) => { previousTickets = prev; return prev.map((ticket) => (ticket.id === ticketId ? { ...ticket, status } : ticket)); });
+    setSelectedTicket((prev) => { previousSelectedTicket = prev; return prev && prev.id === ticketId ? { ...prev, status } : prev; });
 
     try {
       const response = await fetch('/api/sale/tickets', {
@@ -1355,12 +1379,20 @@ export default function SupportTrackingPage() {
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        setFlowMessage(err?.error || 'Không thể đồng bộ trạng thái ticket với server.');
+        const msg = err?.error || 'Không thể đồng bộ trạng thái ticket với server.';
+        if (previousTickets !== null) setTickets(previousTickets);
+        if (previousSelectedTicket !== undefined) setSelectedTicket(previousSelectedTicket);
+        setFlowMessage(msg);
+        addToast(msg, { type: 'error' });
       } else {
         setFlowMessage(`Đã cập nhật trạng thái ticket -> ${status}.`);
       }
     } catch {
-      setFlowMessage('Lỗi kết nối khi cập nhật trạng thái ticket.');
+      const msg = 'Lỗi kết nối khi cập nhật trạng thái ticket.';
+      if (previousTickets !== null) setTickets(previousTickets);
+      if (previousSelectedTicket !== undefined) setSelectedTicket(previousSelectedTicket);
+      setFlowMessage(msg);
+      addToast(msg, { type: 'error' });
     }
   };
 
@@ -1427,6 +1459,13 @@ export default function SupportTrackingPage() {
     t.client.toLowerCase().includes(search.toLowerCase()) ||
     t.title.toLowerCase().includes(search.toLowerCase())
   );
+
+  const ticketVirtualizer = useVirtualizer({
+    count: filteredTickets.length,
+    getScrollElement: () => ticketListRef.current,
+    estimateSize: () => 122,
+    overscan: 3,
+  });
 
   const processedMessages = useMemo(() => {
     return chatMessages.map((msg) => {
@@ -1853,7 +1892,7 @@ export default function SupportTrackingPage() {
   return (
     <div className="flex h-[calc(100vh-theme(spacing.6))] gap-6 p-6">
       {/* Left Pane: Active Tickets List */}
-      <div className="w-[400px] flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden shrink-0">
+      <div className="w-[280px] sm:w-[340px] lg:w-[400px] flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden shrink-0">
         <div className="p-4 border-b border-gray-100">
             <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-bold text-gray-900">Active Tickets</h2>
@@ -1888,56 +1927,66 @@ export default function SupportTrackingPage() {
             </div>
         </div>
         
-        <div className="flex-1 overflow-y-auto">
+        <div ref={ticketListRef} className="flex-1 overflow-y-auto">
             {loadingTickets && tickets.length === 0 ? (
               <div className="p-4 text-sm text-gray-500">Đang tải danh sách tickets...</div>
             ) : filteredTickets.length === 0 ? (
               <div className="p-4 text-sm text-gray-500">Chưa có ticket nào.</div>
-            ) : filteredTickets.map(ticket => (
-                <div 
-                    key={ticket.id}
-                onClick={() => handleSelectTicket(ticket)}
-                    className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                        selectedTicket?.id === ticket.id ? 'bg-blue-50/50 border-l-4 border-l-blue-600' : 'border-l-4 border-l-transparent'
-                    }`}
-                >
-                    <div className="flex justify-between items-start mb-1">
-                        <span className="font-bold text-gray-900 text-sm">{ticket.code}</span>
-                        <span className="text-xs text-gray-400">{ticket.date}</span>
-                    </div>
-                    <h3 className="font-medium text-gray-800 text-sm mb-1 truncate">{ticket.title}</h3>
-                    <p className="text-xs text-gray-500 mb-3">{ticket.client}</p>
-                    <div className="flex items-center justify-between">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
-                           ticket.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
-                           ticket.status === 'RESOLVED' ? 'bg-green-100 text-green-700' :
-                           ticket.status === 'AGREED' ? 'bg-indigo-100 text-indigo-700' :
-                           ticket.status === 'OPEN' ? 'bg-cyan-100 text-cyan-700' :
-                           ticket.status === 'DRAFT' ? 'bg-gray-100 text-gray-700 border border-gray-200' :
-                           'bg-gray-200 text-gray-700'
-                         }`}>
-                           {ticket.status}
-                         </span>
-                         {ticket.priority && (
-                             <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded border ${
-                                ticket.priority === 'Critical' ? 'text-red-600 bg-red-50 border-red-100' :
-                              ticket.priority === 'Urgent' ? 'text-rose-600 bg-rose-50 border-rose-100' :
-                                ticket.priority === 'High' ? 'text-orange-600 bg-orange-50 border-orange-100' :
-                                'text-gray-600 bg-gray-50 border-gray-200'
+            ) : (
+              <div style={{ height: ticketVirtualizer.getTotalSize(), position: 'relative' }}>
+                {ticketVirtualizer.getVirtualItems().map(virtualRow => {
+                  const ticket = filteredTickets[virtualRow.index];
+                  return (
+                    <div
+                        key={ticket.id}
+                        ref={ticketVirtualizer.measureElement}
+                        data-index={virtualRow.index}
+                        style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${virtualRow.start}px)` }}
+                        onClick={() => handleSelectTicket(ticket)}
+                        className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
+                            selectedTicket?.id === ticket.id ? 'bg-blue-50/50 border-l-4 border-l-blue-600' : 'border-l-4 border-l-transparent'
+                        }`}
+                    >
+                        <div className="flex justify-between items-start mb-1">
+                            <span className="font-bold text-gray-900 text-sm">{ticket.code}</span>
+                            <span className="text-xs text-gray-400">{ticket.date}</span>
+                        </div>
+                        <h3 className="font-medium text-gray-800 text-sm mb-1 truncate">{ticket.title}</h3>
+                        <p className="text-xs text-gray-500 mb-3">{ticket.client}</p>
+                        <div className="flex items-center justify-between">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium ${
+                               ticket.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-700' :
+                               ticket.status === 'RESOLVED' ? 'bg-green-100 text-green-700' :
+                               ticket.status === 'AGREED' ? 'bg-indigo-100 text-indigo-700' :
+                               ticket.status === 'OPEN' ? 'bg-cyan-100 text-cyan-700' :
+                               ticket.status === 'DRAFT' ? 'bg-gray-100 text-gray-700 border border-gray-200' :
+                               'bg-gray-200 text-gray-700'
                              }`}>
-                                 {ticket.priority === 'Critical' && <Clock className="w-3 h-3" />}
-                                 {ticket.priority}
+                               {ticket.status}
                              </span>
-                         )}
-                         {ticket.slaStatus === 'Met' && (
-                             <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">
-                                 <CheckCircle2 className="w-3 h-3" />
-                                 SLA Met
-                             </span>
-                         )}
+                             {ticket.priority && (
+                                 <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded border ${
+                                    ticket.priority === 'Critical' ? 'text-red-600 bg-red-50 border-red-100' :
+                                  ticket.priority === 'Urgent' ? 'text-rose-600 bg-rose-50 border-rose-100' :
+                                    ticket.priority === 'High' ? 'text-orange-600 bg-orange-50 border-orange-100' :
+                                    'text-gray-600 bg-gray-50 border-gray-200'
+                                 }`}>
+                                     {ticket.priority === 'Critical' && <Clock className="w-3 h-3" />}
+                                     {ticket.priority}
+                                 </span>
+                             )}
+                             {ticket.slaStatus === 'Met' && (
+                                 <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-100">
+                                     <CheckCircle2 className="w-3 h-3" />
+                                     SLA Met
+                                 </span>
+                             )}
+                        </div>
                     </div>
-                </div>
-            ))}
+                  );
+                })}
+              </div>
+            )}
         </div>
 
         <div className="border-t border-gray-100 p-3 bg-white flex justify-center">
@@ -1952,7 +2001,7 @@ export default function SupportTrackingPage() {
       </div>
 
       {/* Right Pane: Ticket Detail & Chat */}
-      {selectedTicket && (
+      {selectedTicket ? (
         <div className="flex-1 min-h-0 flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             {/* Header */}
             <div className="p-6 border-b border-gray-100 flex items-start justify-between">
@@ -2086,6 +2135,12 @@ export default function SupportTrackingPage() {
 
             {/* Chat Area */}
             <div className="relative flex-1 min-h-0 bg-white">
+            {chatRoomId && chatEverConnectedRef.current && !chatConnected && (
+              <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-center gap-2 bg-amber-50 border-b border-amber-200 py-1.5 px-3 text-xs text-amber-700">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Đang kết nối lại...
+              </div>
+            )}
             <div
               ref={chatScrollRef}
               onScroll={handleChatScroll}
@@ -2100,8 +2155,22 @@ export default function SupportTrackingPage() {
                   <div className="text-sm text-gray-500">Chưa có tin nhắn trong room này.</div>
                 ) : (
                   <>
-                    <div className="flex justify-center py-2 text-xs text-gray-400">
-                      {loadingMoreChat ? 'Loading older messages...' : chatNextPageToken ? 'Scroll up to load older messages' : 'No more messages'}
+                    <div className="flex justify-center py-2">
+                      {loadingMoreChat ? (
+                        <span className="inline-flex items-center gap-1.5 text-xs text-gray-400">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Đang tải tin nhắn cũ hơn...
+                        </span>
+                      ) : chatNextPageToken ? (
+                        <button
+                          onClick={() => void handleLoadMoreChat()}
+                          className="text-xs text-blue-600 hover:text-blue-700 font-medium px-3 py-1 rounded-full border border-blue-200 hover:bg-blue-50 transition-colors"
+                        >
+                          Tải thêm tin nhắn cũ hơn
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-400">Đã hiển thị toàn bộ hội thoại</span>
+                      )}
                     </div>
                     {processedMessages.map((pm) => (
                       <ChatMessageItem
@@ -2159,31 +2228,83 @@ export default function SupportTrackingPage() {
                 className="hidden"
                 onChange={(event) => void handleSendAttachment(event)}
               />
-                <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-4 py-2 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all shadow-sm">
+              {!chatRoomId && (
+                <p className="text-xs text-gray-400 text-center mb-2">
+                  Chọn một ticket để bắt đầu hội thoại
+                </p>
+              )}
+              {uploadingAttachment && (
+                <div className="mb-2">
+                  <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                    <span>Đang tải file...</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5">
+                    <div
+                      className="bg-blue-500 h-1.5 rounded-full transition-all duration-200"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <div className={`flex items-center gap-2 bg-white border rounded-full px-4 py-2 transition-all shadow-sm ${chatRoomId ? 'border-gray-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent' : 'border-gray-100 opacity-60'}`}>
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!chatRoomId || uploadingAttachment || sendingMessage}
-                  className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                  title={!chatRoomId ? 'Chọn ticket trước' : uploadingAttachment ? 'Đang tải file...' : 'Đính kèm file'}
+                  className="text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                        <Paperclip className="w-5 h-5" />
-                    </button>
-                    <textarea
-                      placeholder="Type message to coordinate..."
-                      className="flex-1 bg-transparent border-none focus:outline-none text-sm py-1 resize-none max-h-28"
-                      rows={1}
-                      value={messageInput}
-                      onChange={(e) => setMessageInput(e.target.value)}
-                      onKeyDown={handleMessageInputKeyDown}
-                    />
-                      <button
-                        onClick={() => void handleSendChatMessage()}
-                        disabled={!chatRoomId || !messageInput.trim() || sendingMessage || uploadingAttachment}
-                        className="text-blue-600 hover:text-blue-700 bg-blue-50 p-2 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <Send className="w-4 h-4" />
-                    </button>
-                </div>
+                  <Paperclip className="w-5 h-5" />
+                </button>
+                <textarea
+                  ref={textareaRef}
+                  placeholder={chatRoomId ? 'Nhập tin nhắn...' : 'Chọn ticket để nhắn tin'}
+                  className="flex-1 bg-transparent border-none focus:outline-none text-sm py-1 resize-none disabled:cursor-not-allowed overflow-y-auto"
+                  style={{ maxHeight: '7rem' }}
+                  rows={1}
+                  value={messageInput}
+                  disabled={!chatRoomId}
+                  onChange={(e) => {
+                    setMessageInput(e.target.value);
+                    const el = e.target;
+                    el.style.height = 'auto';
+                    el.style.height = `${el.scrollHeight}px`;
+                  }}
+                  onKeyDown={handleMessageInputKeyDown}
+                />
+                {chatRoomId && messageInput.length > 0 && (
+                  <span className={`text-[10px] flex-shrink-0 tabular-nums ${messageInput.length >= 2000 ? 'text-red-500 font-semibold' : messageInput.length >= 500 ? 'text-amber-500' : 'text-gray-300'}`}>
+                    {messageInput.length}
+                  </span>
+                )}
+                <button
+                  onClick={() => void handleSendChatMessage()}
+                  disabled={!chatRoomId || !messageInput.trim() || sendingMessage || uploadingAttachment}
+                  title={!chatRoomId ? 'Chọn ticket trước' : !messageInput.trim() ? 'Nhập nội dung tin nhắn' : 'Gửi tin nhắn'}
+                  className="text-blue-600 hover:text-blue-700 bg-blue-50 p-2 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+        </div>
+      ) : (
+        /* Empty state when no ticket is selected */
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center bg-white rounded-xl shadow-sm border border-gray-200 gap-5 p-8">
+          <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center">
+            <SendHorizontal className="w-8 h-8 text-blue-400" />
+          </div>
+          <div className="text-center">
+            <h3 className="text-base font-semibold text-gray-800 mb-1">Chọn ticket để bắt đầu</h3>
+            <p className="text-sm text-gray-400 max-w-xs">Chọn một ticket từ danh sách bên trái hoặc tạo ticket mới để hỗ trợ khách hàng.</p>
+          </div>
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 transition-colors shadow-sm text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            Tạo ticket mới
+          </button>
         </div>
       )}
 

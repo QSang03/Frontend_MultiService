@@ -14,13 +14,14 @@
     "proto:sync:watch": "node scripts/sync-proto.js --watch"
   },
   "dependencies": {
-    "@buf/nkc_multiservice.bufbuild_es": "^2.11.0-20260310090349-b829fef3434c.1",
+    "@buf/nkc_multiservice.bufbuild_es": "^2.11.0-20260316101437-a7eece7d9a02.1",
     "@bufbuild/protobuf": "^2.11.0",
     "@connectrpc/connect": "^2.1.1",
     "@connectrpc/connect-node": "^2.1.1",
     "@connectrpc/connect-web": "^2.1.1",
     "@protobuf-ts/runtime": "^2.11.1",
     "@protobuf-ts/runtime-rpc": "^2.11.1",
+    "@tanstack/react-virtual": "^3.13.22",
     "@types/leaflet": "^1.9.21",
     "axios": "^1.13.2",
     "clsx": "^2.1.1",

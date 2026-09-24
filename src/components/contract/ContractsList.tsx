@@ -19,6 +19,7 @@ import Button from '@/components/ui/Button';
 import { useContracts } from '@/hooks/useContracts';
 import { ContractStatus, contractStatusToString } from '@/types/contract';
 import type { Contract } from '@/types/contract';
+import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 
 const StatusBadge = ({ status }: { status: ContractStatus | string }) => {
   const statusStr = typeof status === 'number' ? contractStatusToString(status) : status;
@@ -64,9 +65,11 @@ export default function ContractsList({
   const [statusFilter, setStatusFilter] = useState<ContractStatus | null>(null);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
 
-  // Load contracts on mount
+  // Load contracts on mount — ensure token is fresh first to avoid gRPC Code 16 on first call
   useEffect(() => {
-    listContracts();
+    ensureAuthReady().then(ready => {
+      if (ready) listContracts();
+    });
   }, [listContracts]);
 
   // Calculate stats from contracts data
@@ -262,7 +265,6 @@ export default function ContractsList({
                   </tr>
                 ) : (
                   filteredContracts.map((contract, index) => {
-                    const statusStr = contractStatusToString(contract.status as ContractStatus);
                     return (
                       <tr key={contract.id} className="hover:bg-gray-50/50 animate-contract-fade-up" style={{ animationDelay: `${180 + index * 35}ms` }}>
                         <td className="px-6 py-4 font-medium">
