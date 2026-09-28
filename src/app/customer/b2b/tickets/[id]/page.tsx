@@ -167,7 +167,7 @@ export default function TicketDetailB2B() {
     fetch(`/api/admin/tickets/quotations?ticket_id=${encodeURIComponent(id)}`)
       .then((r) => { if (r.ok) return r.json(); return null; })
       .then((data) => { if (data?.quotation) setQuotation(data.quotation); })
-      .catch(() => {});
+      .catch(() => { });
   }, [id]);
 
   /* ───── chat ───── */

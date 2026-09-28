@@ -20,7 +20,7 @@ let moduleLoadAttempted = false;
 
 async function loadTicketModule(): Promise<Record<string, unknown> | null> {
   if (moduleLoadAttempted) return ticketModuleCache;
-  
+
   moduleLoadAttempted = true;
   try {
     const mod = await import('@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/ticket_pb.js');
@@ -700,4 +700,3 @@ export async function protoUpgradeTicketSLA(payload: {
     return { success: false, error: message };
   }
 }
-

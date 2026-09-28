@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import { Plus, AlertTriangle, Pencil, Trash2, Building, DollarSign, Check, X } from 'lucide-react';
@@ -226,9 +226,8 @@ export default function CostCenterB2B() {
                         {cc.currentSpent.toLocaleString('vi-VN')} đ
                       </td>
                       <td
-                        className={`px-4 py-3.5 text-right font-semibold ${
-                          isWarning ? 'text-amber-600' : 'text-emerald-600'
-                        }`}
+                        className={`px-4 py-3.5 text-right font-semibold ${isWarning ? 'text-amber-600' : 'text-emerald-600'
+                          }`}
                       >
                         {remaining.toLocaleString('vi-VN')} đ
                         {isWarning && <AlertTriangle className="w-3.5 h-3.5 inline ml-1 text-amber-500" />}
@@ -237,16 +236,14 @@ export default function CostCenterB2B() {
                         <div className="flex items-center justify-center gap-2">
                           <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full ${
-                                isWarning ? 'bg-amber-500' : 'bg-emerald-500'
-                              }`}
+                              className={`h-full rounded-full ${isWarning ? 'bg-amber-500' : 'bg-emerald-500'
+                                }`}
                               style={{ width: `${Math.min(pct, 100)}%` }}
                             />
                           </div>
                           <span
-                            className={`text-xs font-semibold ${
-                              isWarning ? 'text-amber-600' : 'text-gray-600'
-                            }`}
+                            className={`text-xs font-semibold ${isWarning ? 'text-amber-600' : 'text-gray-600'
+                              }`}
                           >
                             {pct}%
                           </span>

@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -115,13 +115,12 @@ export default function CreateTicketB2B() {
         {['Thông tin', 'Ngân sách', 'Mức độ ưu tiên', 'Xác nhận'].map((label, i) => (
           <div key={i} className="flex items-center gap-2 flex-1">
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                step > i
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${step > i
                   ? 'bg-emerald-500 text-white'
                   : step === i + 1
-                  ? 'bg-[#0f172a] text-white'
-                  : 'bg-gray-200 text-gray-500'
-              }`}
+                    ? 'bg-[#0f172a] text-white'
+                    : 'bg-gray-200 text-gray-500'
+                }`}
             >
               {i + 1}
             </div>
@@ -143,11 +142,10 @@ export default function CreateTicketB2B() {
                   key={cat.id}
                   type="button"
                   onClick={() => setSelectedCategory(cat.id)}
-                  className={`p-3.5 text-left rounded-lg border text-sm transition-all ${
-                    selectedCategory === cat.id
+                  className={`p-3.5 text-left rounded-lg border text-sm transition-all ${selectedCategory === cat.id
                       ? 'border-emerald-500 bg-emerald-50/50 ring-2 ring-emerald-500/20'
                       : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                    }`}
                 >
                   <p className="font-semibold text-gray-900">{cat.label}</p>
                   <p className="text-xs text-gray-500 mt-0.5">{cat.desc}</p>
@@ -298,9 +296,8 @@ export default function CreateTicketB2B() {
                 key={p.key}
                 type="button"
                 onClick={() => setPriority(p.key)}
-                className={`p-4 rounded-xl border-2 text-left font-medium text-sm transition-all ${
-                  priority === p.key ? p.color + ' ring-2 ring-offset-1' : 'border-gray-200 hover:border-gray-300'
-                }`}
+                className={`p-4 rounded-xl border-2 text-left font-medium text-sm transition-all ${priority === p.key ? p.color + ' ring-2 ring-offset-1' : 'border-gray-200 hover:border-gray-300'
+                  }`}
               >
                 {p.label}
               </button>

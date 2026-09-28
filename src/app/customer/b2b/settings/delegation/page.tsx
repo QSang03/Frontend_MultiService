@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import { Calendar, Save, Info, UserCheck, Trash2, Clock, CheckCircle2 } from 'lucide-react';
@@ -170,7 +170,7 @@ export default function DelegationB2B() {
                 className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
               />
               <span className="text-sm text-gray-700">Tất cả yêu cầu phát sinh trong thời gian này</span>
-            </label>
+            </label >
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
@@ -182,16 +182,16 @@ export default function DelegationB2B() {
               />
               <span className="text-sm text-gray-700">Chỉ yêu cầu dưới hạn mức ngân sách thông thường (≤ 2M)</span>
             </label>
-          </div>
-        </div>
+          </div >
+        </div >
 
         {/* Info */}
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-sm text-amber-700">
+        < div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-sm text-amber-700" >
           <Info className="w-5 h-5 shrink-0 mt-0.5" />
           <p>
             Ủy quyền sẽ tự động hết hiệu lực vào <strong>{dateTo || '(ngày kết thúc)'}</strong>. Đảm bảo luồng duyệt không bị tắc nghẽn khi bạn vắng mặt.
           </p>
-        </div>
+        </div >
 
         <button
           onClick={handleCreate}
@@ -234,11 +234,10 @@ export default function DelegationB2B() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-gray-900 text-sm">{d.delegateeId}</span>
                       <span
-                        className={`text-xs px-2 py-0.5 rounded font-medium ${
-                          active
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-gray-100 text-gray-500'
-                        }`}
+                        className={`text-xs px-2 py-0.5 rounded font-medium ${active
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-gray-100 text-gray-500'
+                          }`}
                       >
                         {active ? 'Đang hiệu lực' : 'Đã thu hồi / Hết hạn'}
                       </span>

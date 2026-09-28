@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import { Save, CheckCircle2, ShieldCheck, Clock, AlertCircle } from 'lucide-react';
@@ -98,14 +98,12 @@ export default function ApprovalSettingsB2B() {
           </div>
           <button
             onClick={() => setEnabled(!enabled)}
-            className={`relative w-12 h-6 rounded-full transition-colors ${
-              enabled ? 'bg-emerald-500' : 'bg-gray-300'
-            }`}
+            className={`relative w-12 h-6 rounded-full transition-colors ${enabled ? 'bg-emerald-500' : 'bg-gray-300'
+              }`}
           >
             <span
-              className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                enabled ? 'left-6' : 'left-0.5'
-              }`}
+              className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${enabled ? 'left-6' : 'left-0.5'
+                }`}
             />
           </button>
         </div>

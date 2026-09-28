@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { Search, Filter, QrCode, Monitor, Printer, Server, History, Wrench, Download, TrendingUp, AlertTriangle, X, ChevronRight, BarChart3 } from 'lucide-react';
@@ -166,9 +166,9 @@ function TCOModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   const parts = parseInt(asset.tcoBreakdown.parts.replace(/,/g, ''), 10);
 
   const bars = [
-    { label: 'Mua sắm ban đầu', value: purchase, color: 'bg-blue-500', pct: Math.round((purchase/total)*100) },
-    { label: 'Chi phí sửa chữa', value: repair, color: 'bg-amber-500', pct: Math.round((repair/total)*100) },
-    { label: 'Linh kiện / phụ tùng', value: parts, color: 'bg-emerald-500', pct: Math.round((parts/total)*100) },
+    { label: 'Mua sắm ban đầu', value: purchase, color: 'bg-blue-500', pct: Math.round((purchase / total) * 100) },
+    { label: 'Chi phí sửa chữa', value: repair, color: 'bg-amber-500', pct: Math.round((repair / total) * 100) },
+    { label: 'Linh kiện / phụ tùng', value: parts, color: 'bg-emerald-500', pct: Math.round((parts / total) * 100) },
   ];
 
   return (

@@ -1,16 +1,16 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { 
-  Plus, 
-  Search, 
-  AlertCircle, 
-  CheckCircle2, 
-  Clock, 
-  DollarSign, 
-  TrendingUp, 
-  FileText, 
-  Loader2, 
+import {
+  Plus,
+  Search,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  DollarSign,
+  TrendingUp,
+  FileText,
+  Loader2,
   X,
   Receipt,
   Layers,
@@ -29,6 +29,9 @@ interface Invoice {
   amount: number;
   dueDate: string;
   status: string;
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 interface NewTierCommission {
@@ -57,9 +60,9 @@ interface RecurringCommission {
 }
 
 const INITIAL_INVOICES: Invoice[] = [
-  { id: 'INV-2024-001', client: 'TechSolutions Ltd', amount: 50000000, dueDate: '2024-02-15', status: 'pending_verification' },
-  { id: 'INV-2024-002', client: 'Nguyen Van A',      amount: 1500000,  dueDate: '2024-01-25', status: 'paid' },
-  { id: 'INV-2024-003', client: 'StartUp Alpha',     amount: 12000000, dueDate: '2024-02-01', status: 'overdue' },
+  { id: 'INV-2024-001', client: 'TechSolutions Ltd', amount: 50000000, dueDate: '2024-02-15', status: 'pending_verification', createdBy: 'Nguyen Sale', updatedAt: '2024-01-20T08:30:00Z', updatedBy: 'Nguyen Sale' },
+  { id: 'INV-2024-002', client: 'Nguyen Van A', amount: 1500000, dueDate: '2024-01-25', status: 'paid', createdBy: 'Tran Sale', updatedAt: '2024-01-25T14:20:00Z', updatedBy: 'Admin' },
+  { id: 'INV-2024-003', client: 'StartUp Alpha', amount: 12000000, dueDate: '2024-02-01', status: 'overdue', createdBy: 'Nguyen Sale', updatedAt: '2024-01-28T09:00:00Z', updatedBy: 'Nguyen Sale' },
 ];
 
 const INITIAL_TIER_COMMISSIONS: NewTierCommission[] = [
@@ -138,9 +141,9 @@ const INITIAL_RECURRING_COMMISSIONS: RecurringCommission[] = [
 ];
 
 const statusConfig: Record<string, { label: string; color: string; dot: string; icon: React.ReactNode }> = {
-  paid:                 { label: 'Đã thanh toán',    color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-400', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-  pending_verification: { label: 'Chờ xác nhận',     color: 'bg-amber-100 text-amber-700',    dot: 'bg-amber-400',   icon: <Clock className="w-3.5 h-3.5" /> },
-  overdue:              { label: 'Quá hạn',           color: 'bg-red-100 text-red-700',        dot: 'bg-red-400',     icon: <AlertCircle className="w-3.5 h-3.5" /> },
+  paid: { label: 'Đã thanh toán', color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-400', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  pending_verification: { label: 'Chờ xác nhận', color: 'bg-amber-100 text-amber-700', dot: 'bg-amber-400', icon: <Clock className="w-3.5 h-3.5" /> },
+  overdue: { label: 'Quá hạn', color: 'bg-red-100 text-red-700', dot: 'bg-red-400', icon: <AlertCircle className="w-3.5 h-3.5" /> },
 };
 
 export default function RevenuePage() {
@@ -188,7 +191,42 @@ export default function RevenuePage() {
     new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
 
   const handleCreateSuccess = (newInvoice: Invoice) => {
-    setInvoices([newInvoice, ...invoices]);
+    setInvoices([{ ...newInvoice, createdBy: 'Bạn', updatedAt: new Date().toISOString(), updatedBy: 'Bạn' }, ...invoices]);
+  };
+
+  const handleExportPDF = (inv: Invoice) => {
+    const fmtAmt = fmt(inv.amount);
+    const cfg = statusConfig[inv.status] ?? { label: inv.status };
+    const html = `<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8"><title>Hóa đơn ${inv.id}</title>
+<style>
+  body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;color:#111;font-size:14px}
+  h1{font-size:22px;color:#1e40af;margin-bottom:4px}
+  .sub{color:#6b7280;font-size:12px;margin-bottom:24px}
+  table{width:100%;border-collapse:collapse;margin-top:16px}
+  th{background:#f3f4f6;padding:8px 12px;text-align:left;font-size:12px;text-transform:uppercase;color:#6b7280}
+  td{padding:10px 12px;border-bottom:1px solid #f3f4f6}
+  .amount{font-weight:700;font-size:16px;color:#1e40af}
+  .footer{margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:11px;color:#9ca3af}
+  @media print{body{margin:0}}
+</style></head>
+<body>
+<h1>HÓA ĐƠN THANH TOÁN</h1>
+<p class="sub">Mã hóa đơn: <strong>${inv.id}</strong></p>
+<table>
+  <tr><th>Thông tin</th><th>Chi tiết</th></tr>
+  <tr><td>Khách hàng</td><td><strong>${inv.client}</strong></td></tr>
+  <tr><td>Số tiền</td><td class="amount">${fmtAmt}</td></tr>
+  <tr><td>Hạn thanh toán</td><td>${inv.dueDate}</td></tr>
+  <tr><td>Trạng thái</td><td>${cfg.label}</td></tr>
+  ${inv.createdBy ? `<tr><td>Tạo bởi</td><td>${inv.createdBy}</td></tr>` : ''}
+  ${inv.updatedAt ? `<tr><td>Cập nhật lần cuối</td><td>${new Date(inv.updatedAt).toLocaleString('vi-VN')}${inv.updatedBy ? ' · bởi ' + inv.updatedBy : ''}</td></tr>` : ''}
+</table>
+<div class="footer">Xuất ngày: ${new Date().toLocaleString('vi-VN')}</div>
+<script>window.onload=()=>{ window.print(); }<\/script>
+</body></html>`;
+    const win = window.open('', '_blank', 'width=800,height=600');
+    if (win) { win.document.write(html); win.document.close(); }
   };
 
   const filtered = invoices.filter(inv => {
@@ -197,8 +235,8 @@ export default function RevenuePage() {
     return true;
   });
 
-  const pendingAmt  = invoices.filter(i => i.status === 'pending_verification').reduce((s, i) => s + i.amount, 0);
-  const overdueAmt  = invoices.filter(i => i.status === 'overdue').reduce((s, i) => s + i.amount, 0);
+  const pendingAmt = invoices.filter(i => i.status === 'pending_verification').reduce((s, i) => s + i.amount, 0);
+  const overdueAmt = invoices.filter(i => i.status === 'overdue').reduce((s, i) => s + i.amount, 0);
   const collectedAmt = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
 
   // Calculations for Commissions tab
@@ -229,22 +267,20 @@ export default function RevenuePage() {
         <div className="flex bg-gray-100 p-1 rounded-xl">
           <button
             onClick={() => setActiveMainTab('commissions')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-              activeMainTab === 'commissions'
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeMainTab === 'commissions'
                 ? 'bg-white text-blue-600 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
-            }`}
+              }`}
           >
             <Sparkles className="w-4 h-4" />
             Hoa Hồng Doanh Số (SRS III.4)
           </button>
           <button
             onClick={() => setActiveMainTab('invoices')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-              activeMainTab === 'invoices'
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${activeMainTab === 'invoices'
                 ? 'bg-white text-blue-600 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
-            }`}
+              }`}
           >
             <Receipt className="w-4 h-4" />
             Hóa Đơn & Thu Tiền
@@ -346,9 +382,8 @@ export default function RevenuePage() {
                       </td>
                       <td className="px-6 py-4 text-right font-mono font-bold text-green-600">{fmt(item.commission)}</td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          item.status === 'AVAILABLE' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                        }`}>
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${item.status === 'AVAILABLE' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                          }`}>
                           {item.status === 'AVAILABLE' ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
                           {item.status === 'AVAILABLE' ? 'Đã Chốt' : 'Tạm Tính'}
                         </span>
@@ -410,9 +445,8 @@ export default function RevenuePage() {
                       </td>
                       <td className="px-6 py-4 text-right font-mono font-bold text-purple-700">{fmt(item.commission)}</td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          item.status === 'AVAILABLE' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                        }`}>
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold ${item.status === 'AVAILABLE' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                          }`}>
                           {item.status === 'AVAILABLE' ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
                           {item.status === 'AVAILABLE' ? 'Đã Chốt' : 'Tạm Tính'}
                         </span>
@@ -471,11 +505,10 @@ export default function RevenuePage() {
                 <button
                   key={tab.key}
                   onClick={() => setStatusFilter(tab.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    statusFilter === tab.key
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${statusFilter === tab.key
                       ? 'bg-blue-600 text-white shadow-sm'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
+                    }`}
                 >
                   {tab.label}
                 </button>

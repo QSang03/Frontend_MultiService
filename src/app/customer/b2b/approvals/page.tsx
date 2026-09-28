@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect } from 'react';
 import { CheckCircle2, XCircle, Clock, Building2, DollarSign, AlertTriangle, ShieldCheck } from 'lucide-react';
@@ -122,11 +122,10 @@ export default function ApprovalsB2B() {
                     </span>
                     <h3 className="font-semibold text-gray-900 text-base">{item.title}</h3>
                     <span
-                      className={`text-xs px-2 py-0.5 rounded font-bold ${
-                        item.level === 2
+                      className={`text-xs px-2 py-0.5 rounded font-bold ${item.level === 2
                           ? 'bg-blue-100 text-blue-800'
                           : 'bg-emerald-100 text-emerald-800'
-                      }`}
+                        }`}
                     >
                       {item.level === 2 ? 'Cấp 2 (Admin)' : 'Cấp 1 (Manager)'}
                     </span>
