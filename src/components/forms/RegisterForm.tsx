@@ -17,7 +17,8 @@ type Props = {
 };
 
 export default function RegisterForm({ mode = 'personal' }: Props) {
-  const { register, isLoading } = useAuth();
+  const { register } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -127,7 +128,7 @@ export default function RegisterForm({ mode = 'personal' }: Props) {
     }
     setConflictResolved(true);
     setShowConflictModal(false);
-    toast.success('Đã chọn phương án gộp thông tin lịch sử!');
+    toast.addToast('Đã chọn phương án gộp thông tin lịch sử!', { type: 'success' });
   };
 
   const handleSkipMerge = () => {
@@ -140,26 +141,31 @@ export default function RegisterForm({ mode = 'personal' }: Props) {
 
     if (!validate()) return;
 
-    const result = await register({
-      name: formData.name,
-      email: formData.email,
-      password: formData.password,
-      phone: formData.phone || undefined,
-      organization: mode === 'business' ? {
-        name: formData.organizationName || undefined,
-        tax_code: formData.organizationTaxCode || undefined,
-        address: formData.organizationAddress || undefined,
-      } : undefined,
-    });
+    setIsSubmitting(true);
+    try {
+      const result = await register({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+        phone: formData.phone || undefined,
+        organization: mode === 'business' ? {
+          name: formData.organizationName || undefined,
+          tax_code: formData.organizationTaxCode || undefined,
+          address: formData.organizationAddress || undefined,
+        } : undefined,
+      });
 
-    if (!result.success) {
-      setErrors({ general: result.error || 'Đăng ký thất bại' });
-      return;
+      if (!result.success) {
+        setErrors({ general: result.error || 'Đăng ký thất bại' });
+        return;
+      }
+
+      // Success: show check email UI
+      setErrors({});
+      setRegisteredEmail(formData.email);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    // Success: show check email UI
-    setErrors({});
-    setRegisteredEmail(formData.email);
   };
 
   // Show "Check your email" UI after successful registration
@@ -410,7 +416,7 @@ export default function RegisterForm({ mode = 'personal' }: Props) {
             />
 
             <div className="pt-2">
-              <Button type="submit" className="w-full" isLoading={isLoading}>
+              <Button type="submit" className="w-full" isLoading={isSubmitting}>
                 Đăng ký
               </Button>
             </div>

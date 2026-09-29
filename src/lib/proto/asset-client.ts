@@ -1,4 +1,4 @@
-﻿import 'server-only';
+import 'server-only';
 import { createClient } from '@connectrpc/connect';
 import { createGrpcTransport } from '@connectrpc/connect-node';
 import { create } from '@bufbuild/protobuf';
@@ -6,27 +6,17 @@ import type { DescService, DescMessage } from '@bufbuild/protobuf';
 import { getAccessToken, deleteSession } from '@/lib/auth/session';
 import { refreshTokens } from '@/lib/auth/refresh';
 
-let assetModuleCache: Record<string, unknown> | null = null;
-let moduleLoadAttempted = false;
+import * as assetProto from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/asset_pb.js';
 
-async function loadAssetModule(): Promise<Record<string, unknown> | null> {
-  if (moduleLoadAttempted) return assetModuleCache;
-
-  moduleLoadAttempted = true;
-  try {
-    const mod = await import('@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/asset_pb.js');
-    assetModuleCache = mod as unknown as Record<string, unknown>;
-    return assetModuleCache;
-  } catch {
-    return null;
-  }
+async function loadAssetModule(): Promise<Record<string, unknown>> {
+  return assetProto as unknown as Record<string, unknown>;
 }
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.66:3000';
+  'http://192.168.117.217:28500';
 
 async function executeWithRefresh<T>(operation: () => Promise<T>, retryOnce = true): Promise<T> {
   try {

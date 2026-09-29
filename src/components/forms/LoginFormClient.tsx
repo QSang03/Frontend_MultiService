@@ -1,14 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
-import dynamic from 'next/dynamic';
+import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { STORAGE_KEYS, getDashboardByRole } from '@/constants';
-import React from 'react';
+import LoginForm from './LoginForm';
 
-const LoginForm = dynamic(() => import('./LoginForm'), { ssr: false });
-
-export default function LoginFormClient(props: React.ComponentProps<typeof LoginForm>) {
+export default function LoginFormClient() {
   const router = useRouter();
 
   useEffect(() => {
@@ -16,13 +13,15 @@ export default function LoginFormClient(props: React.ComponentProps<typeof Login
       const stored = localStorage.getItem(STORAGE_KEYS.USER);
       if (stored) {
         const user = JSON.parse(stored);
-        const target = getDashboardByRole(user?.role);
-        router.replace(target);
+        if (user && user.role) {
+          const target = getDashboardByRole(user.role);
+          router.replace(target);
+        }
       }
     } catch {
       // ignore
     }
   }, [router]);
 
-  return <LoginForm {...props} />;
+  return <LoginForm />;
 }

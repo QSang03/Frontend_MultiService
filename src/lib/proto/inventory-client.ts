@@ -12,29 +12,17 @@ import { getAccessToken, deleteSession } from '@/lib/auth/session';
 import { refreshTokens } from '@/lib/auth/refresh';
 
 // Module cache
-let inventoryModuleCache: Record<string, unknown> | null = null;
-let moduleLoadAttempted = false;
+import * as inventoryProto from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/inventory_pb.js';
 
-async function loadInventoryModule(): Promise<Record<string, unknown> | null> {
-  if (moduleLoadAttempted) return inventoryModuleCache;
-  
-  moduleLoadAttempted = true;
-  try {
-    const mod = await import('@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/inventory_pb.js');
-    inventoryModuleCache = mod as unknown as Record<string, unknown>;
-    console.log('[inventory-client] Proto module loaded successfully');
-    return inventoryModuleCache;
-  } catch (err) {
-    console.warn('[inventory-client] Proto module not available:', err);
-    return null;
-  }
+async function loadInventoryModule(): Promise<Record<string, unknown>> {
+  return inventoryProto as unknown as Record<string, unknown>;
 }
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.66:3000';
+  'http://192.168.117.217:28500';
 
 async function refreshAccessToken(): Promise<boolean> {
   return await refreshTokens();

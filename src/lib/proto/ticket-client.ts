@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Protobuf/Connect client for TicketService (server-side)
  * Raw gRPC (HTTP/2) must be called from server, not browser.
  * 
@@ -13,31 +13,17 @@ import { create } from '@bufbuild/protobuf';
 import type { DescService, DescMessage } from '@bufbuild/protobuf';
 import { getAccessToken, deleteSession } from '@/lib/auth/session';
 import { refreshTokens } from '@/lib/auth/refresh';
+import * as ticketProto from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/ticket_pb.js';
 
-// Module cache
-let ticketModuleCache: Record<string, unknown> | null = null;
-let moduleLoadAttempted = false;
-
-async function loadTicketModule(): Promise<Record<string, unknown> | null> {
-  if (moduleLoadAttempted) return ticketModuleCache;
-
-  moduleLoadAttempted = true;
-  try {
-    const mod = await import('@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/ticket_pb.js');
-    ticketModuleCache = mod as unknown as Record<string, unknown>;
-    console.log('[ticket-client] Proto module loaded successfully');
-    return ticketModuleCache;
-  } catch (err) {
-    console.warn('[ticket-client] Proto module not available:', err);
-    return null;
-  }
+async function loadTicketModule(): Promise<Record<string, unknown>> {
+  return ticketProto as unknown as Record<string, unknown>;
 }
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.66:3000';
+  'http://192.168.117.217:28500';
 
 function mapPriorityToProto(priority: string | number | undefined): number {
   if (typeof priority === 'number') return priority;

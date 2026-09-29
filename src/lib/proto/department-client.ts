@@ -21,10 +21,10 @@ import {
 // Response shapes kept as `unknown` to avoid explicit `any` usage
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.217:3000';
+  'http://192.168.117.217:28500';
 
 async function refreshAccessToken(): Promise<boolean> {
   return await refreshTokens();

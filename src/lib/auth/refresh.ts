@@ -5,10 +5,10 @@ import { create } from '@bufbuild/protobuf';
 import { getRefreshToken, updateTokens } from './session';
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.18:3000';
+  'http://192.168.117.217:28500';
 
 const transport = createGrpcTransport({ baseUrl: BACKEND_URL });
 

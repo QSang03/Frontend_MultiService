@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Protobuf/Connect client for TenantService (B2B Settings, Delegation, Cost Center)
  * Raw gRPC (HTTP/2) must be called from server, not browser.
  */
@@ -7,10 +7,10 @@ import 'server-only';
 import { getAccessToken } from '@/lib/auth/session';
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://localhost:50051';
+  'http://192.168.117.217:28500';
 
 export interface B2BApprovalSettings {
   orgId: string;

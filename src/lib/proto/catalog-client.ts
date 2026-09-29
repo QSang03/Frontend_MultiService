@@ -27,10 +27,10 @@ import {
 } from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/catalog_pb.js';
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.66:3000';
+  'http://192.168.117.217:28500';
 
 export async function protoSubmitCategory(payload: {
   id: string;
