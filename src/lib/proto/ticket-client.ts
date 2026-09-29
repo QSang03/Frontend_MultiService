@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Protobuf/Connect client for TicketService (server-side)
  * Raw gRPC (HTTP/2) must be called from server, not browser.
  * 
@@ -13,31 +13,17 @@ import { create } from '@bufbuild/protobuf';
 import type { DescService, DescMessage } from '@bufbuild/protobuf';
 import { getAccessToken, deleteSession } from '@/lib/auth/session';
 import { refreshTokens } from '@/lib/auth/refresh';
+import * as ticketProto from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/ticket_pb.js';
 
-// Module cache
-let ticketModuleCache: Record<string, unknown> | null = null;
-let moduleLoadAttempted = false;
-
-async function loadTicketModule(): Promise<Record<string, unknown> | null> {
-  if (moduleLoadAttempted) return ticketModuleCache;
-
-  moduleLoadAttempted = true;
-  try {
-    const mod = await import('@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/ticket_pb.js');
-    ticketModuleCache = mod as unknown as Record<string, unknown>;
-    console.log('[ticket-client] Proto module loaded successfully');
-    return ticketModuleCache;
-  } catch (err) {
-    console.warn('[ticket-client] Proto module not available:', err);
-    return null;
-  }
+async function loadTicketModule(): Promise<Record<string, unknown>> {
+  return ticketProto as unknown as Record<string, unknown>;
 }
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.66:3000';
+  'http://192.168.117.217:28500';
 
 function mapPriorityToProto(priority: string | number | undefined): number {
   if (typeof priority === 'number') return priority;
@@ -700,3 +686,224 @@ export async function protoUpgradeTicketSLA(payload: {
     return { success: false, error: message };
   }
 }
+
+// ========================
+// Task Breakdown & Tech Profit Split (SRS III.4.C)
+// ========================
+
+export interface CreateTicketTaskPayload {
+  ticketId: string;
+  title: string;
+  description: string;
+  assignedTechId?: string;
+  estimatedMinutes: number;
+}
+
+export interface UpdateTicketTaskPayload {
+  taskId: string;
+  title?: string;
+  description?: string;
+  assignedTechId?: string;
+  estimatedMinutes?: number;
+  actualMinutes?: number;
+  effortRating?: number;
+  leadRating?: number;
+  status?: string;
+}
+
+export interface TeamMemberSplitInput {
+  techId: string;
+  techName: string;
+  role: string;
+  timeMinutes: number;
+  effortScore: number;
+  leadRating: number;
+}
+
+export async function protoCreateTicketTask(
+  payload: CreateTicketTaskPayload
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.CreateTicketTaskRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        title: payload.title,
+        description: payload.description,
+        assignedTechId: payload.assignedTechId,
+        estimatedMinutes: payload.estimatedMinutes,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).createTicketTask(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Create ticket task failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoUpdateTicketTask(
+  payload: UpdateTicketTaskPayload
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.UpdateTicketTaskRequestSchema as unknown as DescMessage, {
+        taskId: payload.taskId,
+        title: payload.title,
+        description: payload.description,
+        assignedTechId: payload.assignedTechId,
+        estimatedMinutes: payload.estimatedMinutes,
+        actualMinutes: payload.actualMinutes,
+        effortRating: payload.effortRating,
+        leadRating: payload.leadRating,
+        status: payload.status,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).updateTicketTask(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Update ticket task failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoListTicketTasks(
+  ticketId: string
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.ListTicketTasksRequestSchema as unknown as DescMessage, {
+        ticketId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).listTicketTasks(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'List ticket tasks failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoDeleteTicketTask(
+  taskId: string
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.DeleteTicketTaskRequestSchema as unknown as DescMessage, {
+        taskId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).deleteTicketTask(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Delete ticket task failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoGetTeamSplit(
+  ticketId: string
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.GetTeamSplitRequestSchema as unknown as DescMessage, {
+        ticketId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).getTeamSplit(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get team split failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoUpdateTeamSplit(payload: {
+  ticketId: string;
+  members: TeamMemberSplitInput[];
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.UpdateTeamSplitRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        members: payload.members as unknown as never[],
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).updateTeamSplit(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Update team split failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoSubmitTechDispute(payload: {
+  ticketId: string;
+  reason: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.SubmitTechDisputeRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        reason: payload.reason,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).submitTechDispute(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Submit tech dispute failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoSmartAutoAssign(payload: {
+  ticketId: string;
+  forceOverrideTechnicianId?: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.SmartAutoAssignRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        forceOverrideTechnicianId: payload.forceOverrideTechnicianId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).smartAutoAssign(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Smart auto assign failed';
+    return { success: false, error: message };
+  }
+}
+
+

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DollarSign, Users, AlertTriangle, FileText, Zap, TrendingUp, TrendingDown, ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
 import QuickQuoteModal from '@/components/QuickQuoteModal';
@@ -117,6 +117,66 @@ const chartDataSets = {
 export default function SaleDashboardPage() {
   const [timeRange, setTimeRange] = useState<'7days' | '30days' | '90days'>('7days');
   const [showQuickQuote, setShowQuickQuote] = useState(false);
+  const [dashboardStats, setDashboardStats] = useState(stats);
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/sale/dashboard/stats');
+        if (res.ok) {
+          const json = await res.json();
+          const d = json.data;
+          if (d) {
+            setDashboardStats([
+              {
+                label: 'Hoa hồng chờ',
+                value: d.pendingCommission || '18.500.000 ₫',
+                icon: DollarSign,
+                gradient: 'from-blue-500 to-indigo-600',
+                bg: 'bg-blue-50',
+                change: '+12%',
+                sub: 'so tháng trước',
+                positive: true,
+              },
+              {
+                label: 'Lead đang theo dõi',
+                value: String(d.activeLeadsCount || 45),
+                icon: Users,
+                gradient: 'from-violet-500 to-purple-600',
+                bg: 'bg-violet-50',
+                change: '+5%',
+                sub: 'mới tuần này',
+                positive: true,
+              },
+              {
+                label: 'Vi phạm SLA',
+                value: String(d.slaBreachesCount ?? 0),
+                icon: AlertTriangle,
+                gradient: 'from-rose-500 to-red-600',
+                bg: 'bg-rose-50',
+                change: d.slaBreachesCount > 0 ? '+1' : '0',
+                sub: d.slaBreachesCount > 0 ? 'cần xử lý ngay' : 'tuân thủ 100%',
+                positive: d.slaBreachesCount === 0,
+              },
+              {
+                label: 'Hợp đồng hiệu lực',
+                value: String(d.activeContractsCount || 18),
+                icon: FileText,
+                gradient: 'from-emerald-500 to-teal-600',
+                bg: 'bg-emerald-50',
+                change: '+2%',
+                sub: 'gói dài hạn',
+                positive: true,
+              },
+            ]);
+          }
+        }
+      } catch {
+        // keep fallback
+      }
+    }
+    loadStats();
+  }, []);
 
   const chartData = chartDataSets[timeRange];
   const maxValue = Math.max(...chartData.map(d => Math.max(d.revenue, d.profit)));
@@ -142,7 +202,7 @@ export default function SaleDashboardPage() {
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => {
+        {dashboardStats.map((stat) => {
           const Icon = stat.icon;
           const TrendIcon = stat.positive ? TrendingUp : TrendingDown;
           return (

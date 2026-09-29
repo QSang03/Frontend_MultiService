@@ -1,7 +1,7 @@
-﻿'use client';
+'use client';
 
-import React, { useState } from 'react';
-import { X, Sparkles, CheckCircle2, UserCheck, Shield, Award, Activity, AlertCircle, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Sparkles, CheckCircle2, UserCheck, Award, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface CandidateScore {
   technicianId: string;
@@ -24,53 +24,6 @@ interface SmartDispatchModalProps {
   onAssignSuccess: (techId: string, techName: string) => void;
 }
 
-const MOCK_CANDIDATES: CandidateScore[] = [
-  {
-    technicianId: 'TECH-001',
-    technicianName: 'Nguyễn Văn Kỹ Thuật (Senior Specialist)',
-    skillMatched: true,
-    isOnline: true,
-    isAvailable: true,
-    activeTicketsCount: 1,
-    compositeScore: 115.0,
-    matchRationale: 'Phù hợp 100% chứng chỉ Cisco/Server (+30đ), Đang Online (+20đ), Tải nhẹ: 1 việc đang chạy (-15đ)',
-    avatarText: 'NV',
-  },
-  {
-    technicianId: 'TECH-002',
-    technicianName: 'Lê Văn Hải (Network Technician)',
-    skillMatched: true,
-    isOnline: true,
-    isAvailable: true,
-    activeTicketsCount: 3,
-    compositeScore: 85.0,
-    matchRationale: 'Đủ kỹ năng bảo trì (+30đ), Đang Online (+20đ), Đang xử lý 3 tasks (-45đ)',
-    avatarText: 'LH',
-  },
-  {
-    technicianId: 'TECH-003',
-    technicianName: 'Trần Minh Trí (Junior Tech)',
-    skillMatched: false,
-    isOnline: true,
-    isAvailable: true,
-    activeTicketsCount: 0,
-    compositeScore: 70.0,
-    matchRationale: 'Đang rảnh hoàn toàn (0 task), Đang Online (+20đ), Chưa có chứng chỉ chuyên sâu (-10đ)',
-    avatarText: 'TM',
-  },
-  {
-    technicianId: 'TECH-004',
-    technicianName: 'Phạm Quốc Hùng (CCTV Specialist)',
-    skillMatched: false,
-    isOnline: false,
-    isAvailable: false,
-    activeTicketsCount: 4,
-    compositeScore: 30.0,
-    matchRationale: 'Lệch chuyên môn (Camera), Đang bận On-Job Duration đến 17:30',
-    avatarText: 'PQ',
-  },
-];
-
 export default function SmartDispatchModal({
   isOpen,
   ticketId,
@@ -79,25 +32,72 @@ export default function SmartDispatchModal({
   onClose,
   onAssignSuccess,
 }: SmartDispatchModalProps) {
-  const [candidates, setCandidates] = useState<CandidateScore[]>(MOCK_CANDIDATES);
-  const [selectedTechId, setSelectedTechId] = useState<string>(MOCK_CANDIDATES[0].technicianId);
+  const [candidates, setCandidates] = useState<CandidateScore[]>([]);
+  const [selectedTechId, setSelectedTechId] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
   const [assignedDone, setAssignedDone] = useState(false);
+
+  const fetchCandidates = async () => {
+    if (!ticketId) return;
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`/api/admin/tickets/${ticketId}/smart-dispatch`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Không thể tải danh sách kỹ thuật viên');
+      }
+      const list: CandidateScore[] = data.candidateRanking || [];
+      setCandidates(list);
+      if (list.length > 0) {
+        setSelectedTechId(list[0].technicianId);
+      }
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Lỗi tải danh sách kỹ thuật viên');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      setAssignedDone(false);
+      setAssignError(null);
+      fetchCandidates();
+    }
+  }, [isOpen, ticketId]);
 
   if (!isOpen) return null;
 
   const topCandidate = candidates[0];
   const currentSelected = candidates.find(c => c.technicianId === selectedTechId) || topCandidate;
 
-  const handleConfirmAssign = () => {
+  const handleConfirmAssign = async () => {
+    if (!currentSelected) return;
     setIsAssigning(true);
-    setTimeout(() => {
-      setIsAssigning(false);
+    setAssignError(null);
+    try {
+      const res = await fetch(`/api/admin/tickets/${ticketId}/smart-dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ technicianId: currentSelected.technicianId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Phân công kỹ thuật viên thất bại');
+      }
       setAssignedDone(true);
       setTimeout(() => {
         onAssignSuccess(currentSelected.technicianId, currentSelected.technicianName);
       }, 1000);
-    }, 600);
+    } catch (err) {
+      setAssignError(err instanceof Error ? err.message : 'Lỗi hệ thống');
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   return (
@@ -129,7 +129,7 @@ export default function SmartDispatchModal({
             </div>
             <h4 className="font-bold text-gray-900 text-base">Đã phân công thành công!</h4>
             <p className="text-xs text-gray-600">
-              Công việc đã được gán tự động cho <strong>{currentSelected.technicianName}</strong>. Kỹ thuật viên sẽ nhận được thông báo ngay lập tức.
+              Công việc đã được gán tự động cho <strong>{currentSelected?.technicianName}</strong>. Kỹ thuật viên sẽ nhận được thông báo ngay lập tức.
             </p>
           </div>
         ) : (
@@ -145,61 +145,104 @@ export default function SmartDispatchModal({
               </p>
             </div>
 
+            {assignError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{assignError}</span>
+              </div>
+            )}
+
             {/* Candidate List */}
-            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block">
-                Xếp hạng Kỹ thuật viên phù hợp ({candidates.length})
-              </span>
+            {isLoading ? (
+              <div className="py-12 flex flex-col items-center justify-center gap-3 text-gray-500">
+                <Loader2 className="w-7 h-7 animate-spin text-blue-600" />
+                <span className="text-xs font-medium">Đang tính toán xếp hạng thuật toán phân công...</span>
+              </div>
+            ) : loadError ? (
+              <div className="py-8 text-center space-y-3">
+                <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+                <p className="text-xs text-red-600">{loadError}</p>
+                <button
+                  onClick={fetchCandidates}
+                  className="px-3 py-1.5 rounded-lg border text-xs text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Thử lại
+                </button>
+              </div>
+            ) : candidates.length === 0 ? (
+              <div className="py-8 text-center space-y-2 text-gray-500">
+                <p className="text-xs">Hiện chưa có kỹ thuật viên khả dụng trong hệ thống.</p>
+                <button
+                  onClick={fetchCandidates}
+                  className="px-3 py-1.5 rounded-lg border text-xs text-gray-700 hover:bg-gray-50 inline-flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Tải lại
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider block">
+                  Xếp hạng Kỹ thuật viên phù hợp ({candidates.length})
+                </span>
 
-              {candidates.map((cand, idx) => {
-                const isSelected = cand.technicianId === selectedTechId;
-                return (
-                  <div
-                    key={cand.technicianId}
-                    onClick={() => setSelectedTechId(cand.technicianId)}
-                    className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
-                      isSelected 
-                        ? 'border-blue-600 bg-blue-50/40 shadow-sm ring-1 ring-blue-500' 
-                        : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/60'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs ${
-                        idx === 0 
-                          ? 'bg-amber-100 text-amber-800 border border-amber-300' 
-                          : 'bg-gray-100 text-gray-700'
-                      }`}>
-                        {idx === 0 ? '★ 1' : `#${idx + 1}`}
-                      </div>
-
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-gray-900">{cand.technicianName}</span>
-                          {idx === 0 && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-800">
-                              Khuyến nghị nhất
-                            </span>
-                          )}
+                {candidates.map((cand, idx) => {
+                  const isSelected = cand.technicianId === selectedTechId;
+                  return (
+                    <div
+                      key={cand.technicianId}
+                      onClick={() => setSelectedTechId(cand.technicianId)}
+                      className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
+                        isSelected 
+                          ? 'border-blue-600 bg-blue-50/40 shadow-sm ring-1 ring-blue-500' 
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs ${
+                          idx === 0 
+                            ? 'bg-amber-100 text-amber-800 border border-amber-300' 
+                            : 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {idx === 0 ? '★ 1' : `#${idx + 1}`}
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5">{cand.matchRationale}</p>
+
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm text-gray-900">{cand.technicianName}</span>
+                            {idx === 0 && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-800">
+                                Khuyến nghị nhất
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">{cand.matchRationale}</p>
+                        </div>
+                      </div>
+
+                      <div className="text-right flex-shrink-0">
+                        <span className="text-base font-mono font-bold text-blue-700">
+                          {cand.compositeScore.toFixed(0)} đ
+                        </span>
+                        <span className="text-[10px] text-gray-400 block font-medium">Điểm tương thích</span>
                       </div>
                     </div>
-
-                    <div className="text-right flex-shrink-0">
-                      <span className="text-base font-mono font-bold text-blue-700">
-                        {cand.compositeScore.toFixed(0)} đ
-                      </span>
-                      <span className="text-[10px] text-gray-400 block font-medium">Điểm tương thích</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Actions */}
             <div className="flex items-center justify-between pt-3 border-t border-gray-100">
               <span className="text-xs text-gray-500">
-                Đang chọn: <strong className="text-gray-800">{currentSelected.technicianName}</strong>
+                {currentSelected ? (
+                  <>Đang chọn: <strong className="text-gray-800">{currentSelected.technicianName}</strong></>
+                ) : (
+                  'Chưa chọn kỹ thuật viên'
+                )}
               </span>
 
               <div className="flex gap-2">
@@ -212,11 +255,20 @@ export default function SmartDispatchModal({
                 </button>
                 <button
                   onClick={handleConfirmAssign}
-                  disabled={isAssigning}
+                  disabled={isAssigning || !currentSelected || candidates.length === 0}
                   className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/20 transition-all flex items-center gap-2 active:scale-[0.99] disabled:opacity-50"
                 >
-                  <UserCheck className="w-3.5 h-3.5" />
-                  {isAssigning ? 'Đang điều phối...' : 'Phân Công Kỹ Thuật Viên'}
+                  {isAssigning ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Đang điều phối...
+                    </>
+                  ) : (
+                    <>
+                      <UserCheck className="w-3.5 h-3.5" />
+                      Phân Công Kỹ Thuật Viên
+                    </>
+                  )}
                 </button>
               </div>
             </div>

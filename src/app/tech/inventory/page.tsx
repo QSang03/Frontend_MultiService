@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Filter, 
@@ -14,6 +14,7 @@ import {
   ChevronRight,
   X
 } from 'lucide-react';
+import VendorRmaManagement from '@/components/VendorRmaManagement';
 
 // --- Types ---
 type ItemType = 'CONSUMABLE' | 'ASSET';
@@ -356,8 +357,44 @@ export const CreateRMAModal = ({ isOpen, onClose }: CreateRMAModalProps) => {
 };
 
 export default function MyInventoryPage() {
-  const [activeTab, setActiveTab] = useState<'ALL' | 'RESTOCK' | 'RETURNS'>('ALL');
-  const [items] = useState<InventoryItem[]>(INVENTORY_ITEMS);
+  const [activeTab, setActiveTab] = useState<'ALL' | 'RESTOCK' | 'RETURNS' | 'RMA'>('ALL');
+  const [items, setItems] = useState<InventoryItem[]>(INVENTORY_ITEMS);
+
+  useEffect(() => {
+    async function loadItems() {
+      try {
+        const res = await fetch('/api/admin/inventory/items');
+        if (res.ok) {
+          const data = await res.json();
+          const list = data.items || [];
+          if (list.length > 0) {
+            setItems(list.map((it: Record<string, unknown>) => {
+              const qty = Number(it.availableQuantity ?? it.totalQuantity ?? 0);
+              const minStock = Number(it.minStockLevel || 0);
+              const status: 'GOOD' | 'LOW' | 'OUT_OF_STOCK' =
+                qty <= 0 ? 'OUT_OF_STOCK' : qty <= minStock ? 'LOW' : 'GOOD';
+              const type: 'CONSUMABLE' | 'ASSET' | 'TOOL' =
+                Number(it.itemType) === 1 ? 'CONSUMABLE' : Number(it.itemType) === 2 ? 'ASSET' : 'TOOL';
+              return {
+                id: String(it.id),
+                name: String(it.name),
+                sku: String(it.sku),
+                type,
+                quantity: qty,
+                unit: String(it.unit || 'pcs'),
+                minStock,
+                maxStock: Number(it.maxStockLevel || 50),
+                status,
+              };
+            }));
+          }
+        }
+      } catch {
+        // keep fallback
+      }
+    }
+    loadItems();
+  }, []);
 
   // Modal states
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -655,6 +692,17 @@ export default function MyInventoryPage() {
               <History className="w-4 h-4" />
               Returns
             </button>
+            <button 
+              onClick={() => setActiveTab('RMA')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeTab === 'RMA' 
+                  ? 'bg-gray-900 text-white shadow-sm' 
+                  : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <RotateCcw className="w-4 h-4" />
+              Vendor RMA (SRS III.8)
+            </button>
           </div>
         </div>
 
@@ -718,6 +766,7 @@ export default function MyInventoryPage() {
           {activeTab === 'ALL' && renderAllItems()}
           {activeTab === 'RESTOCK' && renderRestock()}
           {activeTab === 'RETURNS' && renderReturns()}
+          {activeTab === 'RMA' && <VendorRmaManagement />}
         </div>
       </div>
       

@@ -1,7 +1,8 @@
-﻿'use client';
+'use client';
 
 import React, { useState } from 'react';
 import { X, AlertTriangle, Send, Upload, CheckCircle2, ShieldAlert } from 'lucide-react';
+import internalApiClient from '@/lib/api/internal-client';
 
 interface TechDisputeModalProps {
   jobId: string;
@@ -25,20 +26,31 @@ export default function TechDisputeModal({
   const [hasEvidence, setHasEvidence] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reason.trim()) return;
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    setErrorMsg(null);
+
+    try {
+      await internalApiClient.post(`/api/admin/tickets/${jobId}/split`, {
+        reason: `[Đề xuất: ${proposedPct}%] ${reason}`,
+      });
       setIsSubmitted(true);
       setTimeout(() => {
         onSubmitSuccess();
       }, 1500);
-    }, 800);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gửi khiếu nại thất bại';
+      setErrorMsg(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
+
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">

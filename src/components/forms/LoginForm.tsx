@@ -10,7 +10,8 @@ import { isValidEmail } from '@/utils';
 import MfaValidate from './MfaValidate';
 
 export default function LoginForm() {
-  const { login, isLoading } = useAuth();
+  const { login } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string; general?: string }>({});
@@ -40,22 +41,26 @@ export default function LoginForm() {
 
     if (!validate()) return;
 
-    const result = await login({ email, password });
+    setIsSubmitting(true);
+    try {
+      const result = await login({ email, password });
 
-    if (result.success) {
-      // Login successful, navigation handled by useAuth
-      return;
-    }
+      if (result.success) {
+        return;
+      }
 
-    // Check if MFA required
-    const maybe = result as unknown as Record<string, unknown>;
-    if (maybe.mfa_required && typeof maybe.mfa_token === 'string') {
-      setMfaToken(maybe.mfa_token as string);
-      return;
-    }
+      // Check if MFA required
+      const maybe = result as unknown as Record<string, unknown>;
+      if (maybe.mfa_required && typeof maybe.mfa_token === 'string') {
+        setMfaToken(maybe.mfa_token as string);
+        return;
+      }
 
-    if (!result.success) {
-      setErrors({ general: result.error || 'Đăng nhập thất bại' });
+      if (!result.success) {
+        setErrors({ general: result.error || 'Đăng nhập thất bại' });
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -128,7 +133,7 @@ export default function LoginForm() {
               </Link>
             </div>
 
-            <Button type="submit" className="w-full" isLoading={isLoading}>
+            <Button type="submit" className="w-full" isLoading={isSubmitting}>
               Đăng nhập
             </Button>
           </form>

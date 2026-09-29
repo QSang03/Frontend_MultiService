@@ -1,6 +1,6 @@
-﻿'use client';
+'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus,
   Search,
@@ -149,6 +149,8 @@ const statusConfig: Record<string, { label: string; color: string; dot: string; 
 export default function RevenuePage() {
   const [activeMainTab, setActiveMainTab] = useState<'invoices' | 'commissions'>('commissions');
   const [invoices, setInvoices] = useState(INITIAL_INVOICES);
+  const [tierCommissions, setTierCommissions] = useState<NewTierCommission[]>(INITIAL_TIER_COMMISSIONS);
+  const [recurringCommissions, setRecurringCommissions] = useState<RecurringCommission[]>(INITIAL_RECURRING_COMMISSIONS);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -156,6 +158,56 @@ export default function RevenuePage() {
   const [reminderSendingId, setReminderSendingId] = useState<string | null>(null);
   const [reminderConfirmInv, setReminderConfirmInv] = useState<Invoice | null>(null);
   const { addToast } = useToast();
+
+  useEffect(() => {
+    async function loadCommissions() {
+      try {
+        const res = await fetch('/api/sale/commissions');
+        if (res.ok) {
+          const json = await res.json();
+          const list = json.data?.commissions || [];
+          if (list.length > 0) {
+            const newTier: NewTierCommission[] = [];
+            const recurring: RecurringCommission[] = [];
+            list.forEach((item: Record<string, unknown>, idx: number) => {
+              const isRecurring = item.commissionType === 'RECURRING' || Boolean(item.billingCycle);
+              if (isRecurring) {
+                recurring.push({
+                  id: String(item.id || `COM-REC-${idx}`),
+                  contractNo: String(item.contractNumber || item.contractNo || 'HD-REC'),
+                  client: String(item.customerName || item.client || 'Khách hàng Doanh nghiệp'),
+                  periodMonth: Number(item.periodMonth || 1),
+                  billingCycle: String(item.billingCycle || 'Kỳ Tháng hiện tại'),
+                  periodProfit: Number(item.profitAmount || item.baseProfit || 0),
+                  retentionRate: Number(item.rate || 0.05),
+                  commission: Number(item.commissionAmount || 0),
+                  status: (item.status === 'PAID' || item.status === 'AVAILABLE') ? 'AVAILABLE' : 'PROVISIONAL',
+                });
+              } else {
+                newTier.push({
+                  id: String(item.id || `COM-NEW-${idx}`),
+                  contractNo: String(item.contractNumber || item.contractNo || 'HD-NEW'),
+                  client: String(item.customerName || item.client || 'Khách hàng Doanh nghiệp'),
+                  serviceType: String(item.serviceType || 'Dịch vụ CNTT & Bảo trì'),
+                  date: item.createdAt ? new Date(String(item.createdAt)).toLocaleDateString('vi-VN') : 'Hôm nay',
+                  baseProfit: Number(item.profitAmount || item.baseProfit || 0),
+                  tier: String(item.tier || 'Tier 1 (Cơ bản)'),
+                  rate: Number(item.rate || 0.1),
+                  commission: Number(item.commissionAmount || 0),
+                  status: (item.status === 'PAID' || item.status === 'AVAILABLE') ? 'AVAILABLE' : 'PROVISIONAL',
+                });
+              }
+            });
+            if (newTier.length > 0) setTierCommissions(newTier);
+            if (recurring.length > 0) setRecurringCommissions(recurring);
+          }
+        }
+      } catch {
+        // preserve initial data as fallback
+      }
+    }
+    loadCommissions();
+  }, []);
 
   const handleConfirmSlip = async (inv: Invoice) => {
     setConfirmingId(inv.id);
@@ -240,8 +292,8 @@ export default function RevenuePage() {
   const collectedAmt = invoices.filter(i => i.status === 'paid').reduce((s, i) => s + i.amount, 0);
 
   // Calculations for Commissions tab
-  const totalTierComms = INITIAL_TIER_COMMISSIONS.reduce((s, c) => s + c.commission, 0);
-  const totalRecComms = INITIAL_RECURRING_COMMISSIONS.reduce((s, c) => s + c.commission, 0);
+  const totalTierComms = tierCommissions.reduce((s, c) => s + c.commission, 0);
+  const totalRecComms = recurringCommissions.reduce((s, c) => s + c.commission, 0);
   const carryForwardClawback = 2000000; // 2M carried forward due to 30% MTD cap
   const netEarnings = totalTierComms + totalRecComms - carryForwardClawback;
   const kpis = [
@@ -349,7 +401,7 @@ export default function RevenuePage() {
                 </p>
               </div>
               <span className="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-semibold">
-                {INITIAL_TIER_COMMISSIONS.length} Hợp đồng
+                {tierCommissions.length} Hợp đồng
               </span>
             </div>
 
@@ -368,7 +420,7 @@ export default function RevenuePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {INITIAL_TIER_COMMISSIONS.map((item) => (
+                  {tierCommissions.map((item) => (
                     <tr key={item.id} className="hover:bg-blue-50/20 transition-colors">
                       <td className="px-6 py-4 font-mono text-xs font-bold text-blue-600">{item.contractNo}</td>
                       <td className="px-6 py-4 font-medium text-gray-900">{item.client}</td>
@@ -408,7 +460,7 @@ export default function RevenuePage() {
                 </p>
               </div>
               <span className="text-xs bg-purple-100 text-purple-800 px-3 py-1 rounded-full font-semibold">
-                {INITIAL_RECURRING_COMMISSIONS.length} Hợp đồng duy trì
+                {recurringCommissions.length} Hợp đồng duy trì
               </span>
             </div>
 
@@ -427,7 +479,7 @@ export default function RevenuePage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {INITIAL_RECURRING_COMMISSIONS.map((item) => (
+                  {recurringCommissions.map((item) => (
                     <tr key={item.id} className="hover:bg-purple-50/20 transition-colors">
                       <td className="px-6 py-4 font-mono text-xs font-bold text-purple-700">{item.contractNo}</td>
                       <td className="px-6 py-4 font-medium text-gray-900">{item.client}</td>

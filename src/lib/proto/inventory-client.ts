@@ -12,29 +12,17 @@ import { getAccessToken, deleteSession } from '@/lib/auth/session';
 import { refreshTokens } from '@/lib/auth/refresh';
 
 // Module cache
-let inventoryModuleCache: Record<string, unknown> | null = null;
-let moduleLoadAttempted = false;
+import * as inventoryProto from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/inventory_pb.js';
 
-async function loadInventoryModule(): Promise<Record<string, unknown> | null> {
-  if (moduleLoadAttempted) return inventoryModuleCache;
-  
-  moduleLoadAttempted = true;
-  try {
-    const mod = await import('@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/inventory_pb.js');
-    inventoryModuleCache = mod as unknown as Record<string, unknown>;
-    console.log('[inventory-client] Proto module loaded successfully');
-    return inventoryModuleCache;
-  } catch (err) {
-    console.warn('[inventory-client] Proto module not available:', err);
-    return null;
-  }
+async function loadInventoryModule(): Promise<Record<string, unknown>> {
+  return inventoryProto as unknown as Record<string, unknown>;
 }
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.66:3000';
+  'http://192.168.117.217:28500';
 
 async function refreshAccessToken(): Promise<boolean> {
   return await refreshTokens();
@@ -343,3 +331,159 @@ export async function protoGetStockStatus(
     return { success: false, error: message };
   }
 }
+
+// ========================
+// Vendor RMA Management (SRS III.8)
+// ========================
+
+export interface CreateRmaPayload {
+  itemId: string;
+  vendorName: string;
+  originalSerialNumber: string;
+  defectDescription: string;
+  vendorRefNumber?: string;
+  shippingCostCents?: bigint;
+  ticketId?: string;
+}
+
+export interface UpdateRmaStatusPayload {
+  rmaId: string;
+  status: string;
+  vendorRefNumber?: string;
+  notes?: string;
+}
+
+export interface SwapRmaSerialPayload {
+  rmaId: string;
+  replacedSerialNumber: string;
+  notes?: string;
+}
+
+export interface ListRmasPayload {
+  status?: string;
+  itemId?: string;
+  vendorName?: string;
+  onlyOverdue?: boolean;
+  pageSize?: number;
+  pageToken?: string;
+}
+
+export async function protoCreateRma(
+  payload: CreateRmaPayload
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const { client, mod } = await createAuthenticatedInventoryClient();
+      const schema = mod.CreateRmaRequestSchema as unknown as DescMessage;
+      const request = create(schema, {
+        itemId: payload.itemId,
+        vendorName: payload.vendorName,
+        originalSerialNumber: payload.originalSerialNumber,
+        defectDescription: payload.defectDescription,
+        vendorRefNumber: payload.vendorRefNumber,
+        shippingCostCents: payload.shippingCostCents,
+        ticketId: payload.ticketId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).createRma(request as unknown);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Create RMA failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoUpdateRmaStatus(
+  payload: UpdateRmaStatusPayload
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const { client, mod } = await createAuthenticatedInventoryClient();
+      const schema = mod.UpdateRmaStatusRequestSchema as unknown as DescMessage;
+      const request = create(schema, {
+        rmaId: payload.rmaId,
+        status: payload.status,
+        vendorRefNumber: payload.vendorRefNumber,
+        notes: payload.notes,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).updateRmaStatus(request as unknown);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Update RMA status failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoSwapRmaSerial(
+  payload: SwapRmaSerialPayload
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const { client, mod } = await createAuthenticatedInventoryClient();
+      const schema = mod.SwapRmaSerialRequestSchema as unknown as DescMessage;
+      const request = create(schema, {
+        rmaId: payload.rmaId,
+        replacedSerialNumber: payload.replacedSerialNumber,
+        notes: payload.notes,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).swapRmaSerial(request as unknown);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Swap RMA serial failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoListRmas(
+  payload: ListRmasPayload = {}
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const { client, mod } = await createAuthenticatedInventoryClient();
+      const schema = mod.ListRmasRequestSchema as unknown as DescMessage;
+      const request = create(schema, {
+        status: payload.status,
+        itemId: payload.itemId,
+        vendorName: payload.vendorName,
+        onlyOverdue: payload.onlyOverdue,
+        pageSize: payload.pageSize ?? 50,
+        pageToken: payload.pageToken ?? '',
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).listRmas(request as unknown);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'List RMAs failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoGetRma(
+  rmaId: string
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const { client, mod } = await createAuthenticatedInventoryClient();
+      const schema = mod.GetRmaRequestSchema as unknown as DescMessage;
+      const request = create(schema, { rmaId });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).getRma(request as unknown);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get RMA failed';
+    return { success: false, error: message };
+  }
+}
+

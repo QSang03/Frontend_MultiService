@@ -20,6 +20,7 @@ import {
 import SubmitQuotationModal from '@/components/SubmitQuotationModal';
 import AssignTicketModal from '@/components/AssignTicketModal';
 import SmartDispatchModal from '@/components/SmartDispatchModal';
+import { useToast } from '@/components/ui';
 
 interface ChatMessage {
   id: string;
@@ -214,6 +215,7 @@ const AdminChatMessageItem = React.memo(function AdminChatMessageItem({
 });
 
 export default function TicketMonitorPage() {
+  const toast = useToast();
   const router = useRouter();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1227,7 +1229,7 @@ export default function TicketMonitorPage() {
             onClose={() => setShowSmartDispatchModal(false)}
             onAssignSuccess={(techId, techName) => {
               setShowSmartDispatchModal(false);
-              toast.success(`Đã phân công thông minh cho ${techName || techId}`);
+              toast.addToast(`Đã phân công thông minh cho ${techName || techId}`, { type: 'success' });
               fetchTickets();
             }}
           />

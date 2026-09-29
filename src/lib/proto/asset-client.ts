@@ -1,4 +1,4 @@
-﻿import 'server-only';
+import 'server-only';
 import { createClient } from '@connectrpc/connect';
 import { createGrpcTransport } from '@connectrpc/connect-node';
 import { create } from '@bufbuild/protobuf';
@@ -6,27 +6,17 @@ import type { DescService, DescMessage } from '@bufbuild/protobuf';
 import { getAccessToken, deleteSession } from '@/lib/auth/session';
 import { refreshTokens } from '@/lib/auth/refresh';
 
-let assetModuleCache: Record<string, unknown> | null = null;
-let moduleLoadAttempted = false;
+import * as assetProto from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/asset_pb.js';
 
-async function loadAssetModule(): Promise<Record<string, unknown> | null> {
-  if (moduleLoadAttempted) return assetModuleCache;
-
-  moduleLoadAttempted = true;
-  try {
-    const mod = await import('@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/asset_pb.js');
-    assetModuleCache = mod as unknown as Record<string, unknown>;
-    return assetModuleCache;
-  } catch {
-    return null;
-  }
+async function loadAssetModule(): Promise<Record<string, unknown>> {
+  return assetProto as unknown as Record<string, unknown>;
 }
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.66:3000';
+  'http://192.168.117.217:28500';
 
 async function executeWithRefresh<T>(operation: () => Promise<T>, retryOnce = true): Promise<T> {
   try {
@@ -195,3 +185,56 @@ export async function protoRecordDigitalHandover(payload: {
     return { success: false, error: message };
   }
 }
+
+export async function protoGetAsset(
+  assetId: string
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadAssetModule();
+  if (!mod) {
+    return { success: false, error: 'AssetService proto module not yet available.' };
+  }
+
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedAssetClient();
+      const request = create(mod.GetAssetRequestSchema as unknown as DescMessage, {
+        id: assetId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).getAsset(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get asset failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoGenerateAssetQR(
+  assetId: string
+): Promise<{ success: boolean; response?: { qrCodeUrl: string; assetName: string }; error?: string }> {
+  const mod = await loadAssetModule();
+  if (!mod) {
+    return { success: false, error: 'AssetService proto module not yet available.' };
+  }
+
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedAssetClient();
+      const request = create(mod.GenerateAssetQRRequestSchema as unknown as DescMessage, {
+        assetId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return (await (client as unknown as Record<string, RpcMethod>).generateAssetQR(request as unknown)) as {
+        qrCodeUrl: string;
+        assetName: string;
+      };
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Generate QR failed';
+    return { success: false, error: message };
+  }
+}
+
+

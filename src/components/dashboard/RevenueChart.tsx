@@ -12,19 +12,42 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 
-const data = [
-  { name: 'Week 1', grossRevenue: 8000, netProfit: 4000, opexCogs: 6000 },
-  { name: 'Week 2', grossRevenue: 12000, netProfit: 5500, opexCogs: 7500 },
-  { name: 'Week 3', grossRevenue: 18000, netProfit: 8000, opexCogs: 12000 },
-  { name: 'Week 4', grossRevenue: 24000, netProfit: 9800, opexCogs: 14200 },
+export interface RevenueChartItem {
+  name: string;
+  grossRevenue: number;
+  netProfit: number;
+  opexCogs: number;
+}
+
+const DEFAULT_DATA: RevenueChartItem[] = [
+  { name: 'Tuần 1', grossRevenue: 12000000, netProfit: 6500000, opexCogs: 5500000 },
+  { name: 'Tuần 2', grossRevenue: 22000000, netProfit: 12000000, opexCogs: 10000000 },
+  { name: 'Tuần 3', grossRevenue: 28000000, netProfit: 15500000, opexCogs: 12500000 },
+  { name: 'Tuần 4', grossRevenue: 35000000, netProfit: 19000000, opexCogs: 16000000 },
 ];
 
-export default function RevenueChart() {
+interface RevenueChartProps {
+  data?: RevenueChartItem[];
+}
+
+export default function RevenueChart({ data = DEFAULT_DATA }: RevenueChartProps) {
+  const fmtVnd = (value: number) => {
+    if (value >= 1000000) {
+      return `${(value / 1000000).toFixed(1)}M đ`;
+    }
+    return `${(value / 1000).toFixed(0)}k đ`;
+  };
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">
-        Revenue vs Profit vs Cost
-      </h3>
+    <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-base font-bold text-gray-900">
+            Doanh Thu vs Lợi Nhuận vs Chi Phí (MTD)
+          </h3>
+          <p className="text-xs text-gray-500">Biến động tài chính theo tuần trong tháng</p>
+        </div>
+      </div>
       <div className="h-[300px] w-full min-w-0">
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={data}>
@@ -37,51 +60,52 @@ export default function RevenueChart() {
             <YAxis 
               tick={{ fontSize: 12, fill: '#6b7280' }}
               axisLine={{ stroke: '#e5e7eb' }}
-              tickFormatter={(value) => `$${value / 1000}k`}
+              tickFormatter={(value) => fmtVnd(value)}
             />
             <Tooltip 
               formatter={(value?: number) => {
                 if (typeof value !== 'number') return ['', ''];
-                return [`$${value.toLocaleString()}`, ''];
+                return [`${value.toLocaleString('vi-VN')} đ`, ''];
               }}
               contentStyle={{ 
                 backgroundColor: '#1f2937',
                 border: 'none',
                 borderRadius: '8px',
-                color: '#fff'
+                color: '#fff',
+                fontSize: '12px',
               }}
             />
             <Legend 
-              wrapperStyle={{ paddingTop: '20px' }}
+              wrapperStyle={{ paddingTop: '15px' }}
               formatter={(value) => (
-                <span className="text-sm text-gray-600">{value}</span>
+                <span className="text-xs font-medium text-gray-600">{value}</span>
               )}
             />
             <Line
               type="monotone"
               dataKey="grossRevenue"
-              name="Gross Revenue"
+              name="Doanh thu (Gross Revenue)"
               stroke="#3b82f6"
-              strokeWidth={2}
+              strokeWidth={2.5}
               dot={{ fill: '#3b82f6', strokeWidth: 2 }}
               activeDot={{ r: 6 }}
             />
             <Line
               type="monotone"
               dataKey="netProfit"
-              name="Net Profit"
+              name="Lợi nhuận ròng (Net Profit)"
               stroke="#22c55e"
-              strokeWidth={2}
+              strokeWidth={2.5}
               dot={{ fill: '#22c55e', strokeWidth: 2 }}
               activeDot={{ r: 6 }}
             />
             <Line
               type="monotone"
               dataKey="opexCogs"
-              name="OpEx + COGS"
+              name="Giá vốn & Vận hành (COGS)"
               stroke="#ef4444"
               strokeWidth={2}
-              strokeDasharray="5 5"
+              strokeDasharray="4 4"
               dot={{ fill: '#ef4444', strokeWidth: 2 }}
               activeDot={{ r: 6 }}
             />

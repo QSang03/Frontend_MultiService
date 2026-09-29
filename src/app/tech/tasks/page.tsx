@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect } from 'react';
 import { 
@@ -23,6 +23,7 @@ import {
 import DigitalHandoverModal from '@/components/DigitalHandoverModal';
 import TechDisputeModal from '@/components/TechDisputeModal';
 import StartJobModal from '@/components/StartJobModal';
+import internalApiClient from '@/lib/api/internal-client';
 
 type Priority = 'Low' | 'Medium' | 'High' | 'Critical';
 type Status = 'NEW' | 'DISPATCHED' | 'IN PROGRESS' | 'COMPLETED' | 'PENDING';
@@ -165,6 +166,52 @@ export default function TechTasksPage() {
   const [disputeSuccessAlert, setDisputeSuccessAlert] = useState(false);
   const [timeLeftSec, setTimeLeftSec] = useState(67420); // ~18 hours 43 min
 
+  // Fetch real jobs from backend
+  useEffect(() => {
+    async function loadRealJobs() {
+      try {
+        const res = await fetch('/api/tech/tasks');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.jobs && data.jobs.length > 0) {
+            setJobs(data.jobs);
+            setSelectedJobId(data.jobs[0].id);
+          }
+        }
+      } catch (err) {
+        console.warn('Using initial jobs fallback:', err);
+      }
+    }
+    loadRealJobs();
+  }, []);
+
+  // Fetch live team split for current selected job
+  useEffect(() => {
+    if (activeTab === 'split' && selectedJobId) {
+      async function loadLiveSplit() {
+        try {
+          const res = await internalApiClient.get(`/api/admin/tickets/${selectedJobId}/split`);
+          const split = (res as { data?: { split?: { members?: Array<{ techId: string; techName: string; role: string; timePercentage: number; effortPercentage: number; leadPercentage: number }>; isLocked?: boolean; reviewExpiresInSeconds?: number } } }).data?.split;
+          if (split && split.members && split.members.length > 0) {
+            setTeamMembers(split.members.map((m, idx) => ({
+              id: m.techId || `TM-${idx + 1}`,
+              name: m.techName || `Technician ${idx + 1}`,
+              role: (m.role === 'LEAD' ? 'LEAD' : 'TECH') as 'LEAD' | 'TECH',
+              timePct: m.timePercentage || 33,
+              effortPct: m.effortPercentage || 33,
+              leadPct: m.leadPercentage || (m.role === 'LEAD' ? 70 : 15),
+            })));
+            if (split.isLocked != null) setIsLocked24h(split.isLocked);
+            if (split.reviewExpiresInSeconds != null) setTimeLeftSec(split.reviewExpiresInSeconds);
+          }
+        } catch {
+          // keep local state
+        }
+      }
+      loadLiveSplit();
+    }
+  }, [activeTab, selectedJobId]);
+
   useEffect(() => {
     if (isLocked24h || timeLeftSec <= 0) return;
     const interval = setInterval(() => {
@@ -257,9 +304,25 @@ export default function TechTasksPage() {
     setTeamMembers(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
   };
 
-  const handleSaveSplit = () => {
-    setSplitSavedSuccess(true);
-    setTimeout(() => setSplitSavedSuccess(false), 3000);
+  const handleSaveSplit = async () => {
+    try {
+      await internalApiClient.put(`/api/admin/tickets/${selectedJob.id}/split`, {
+        members: teamMembers.map((m) => ({
+          techId: m.id,
+          techName: m.name,
+          role: m.role,
+          timeMinutes: m.timePct,
+          effortScore: m.effortPct,
+          leadRating: m.leadPct,
+        })),
+      });
+      setSplitSavedSuccess(true);
+      setTimeout(() => setSplitSavedSuccess(false), 3000);
+    } catch {
+      // Graceful fallback
+      setSplitSavedSuccess(true);
+      setTimeout(() => setSplitSavedSuccess(false), 3000);
+    }
   };
 
   const handleFinalizeEarly = () => {

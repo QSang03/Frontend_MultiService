@@ -12,28 +12,17 @@ import { getAccessToken, deleteSession } from '@/lib/auth/session';
 import { refreshTokens } from '@/lib/auth/refresh';
 
 // Module cache
-let quotationModuleCache: Record<string, unknown> | null = null;
-let moduleLoadAttempted = false;
+import * as quotationProto from '@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/quotation_pb.js';
 
-async function loadQuotationModule(): Promise<Record<string, unknown> | null> {
-  if (moduleLoadAttempted) return quotationModuleCache;
-  moduleLoadAttempted = true;
-  try {
-    const mod = await import('@buf/nkc_multiservice.bufbuild_es/multiservice/service/v1/quotation_pb.js');
-    quotationModuleCache = mod as unknown as Record<string, unknown>;
-    console.log('[quotation-client] Proto module loaded successfully');
-    return quotationModuleCache;
-  } catch (err) {
-    console.warn('[quotation-client] Proto module not available:', err);
-    return null;
-  }
+async function loadQuotationModule(): Promise<Record<string, unknown>> {
+  return quotationProto as unknown as Record<string, unknown>;
 }
 
 const BACKEND_URL =
-  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_GRPC_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_PROTO_URL ||
   process.env.BACKEND_URL ||
-  'http://192.168.117.66:3000';
+  'http://192.168.117.217:28500';
 
 async function refreshAccessToken(): Promise<boolean> {
   return await refreshTokens();
