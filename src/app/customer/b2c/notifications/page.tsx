@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Bell,
   CheckCircle2,
@@ -8,8 +8,10 @@ import {
   Wrench,
   CreditCard,
   MessageCircle,
+  Loader2,
 } from 'lucide-react';
 import EmptyState from '@/components/ui/EmptyState';
+import internalApiClient from '@/lib/api/internal-client';
 
 interface Notification {
   id: string;
@@ -23,32 +25,170 @@ interface Notification {
   bgColor: string;
 }
 
-const initialNotifications: Notification[] = [
-  { id: '1', type: 'ticket', title: 'Tech đang đến', description: 'Tech Nguyễn Minh đang trên đường đến #T-0012. Dự kiến 15 phút.', time: '5 phút trước', read: false, icon: Clock, iconColor: 'text-blue-600', bgColor: 'bg-blue-50' },
-  { id: '2', type: 'payment', title: 'Nhắc thanh toán', description: 'Ticket #T-0012 đã hoàn thành. Vui lòng thanh toán 750,000 VNĐ.', time: '1 giờ trước', read: false, icon: CreditCard, iconColor: 'text-yellow-600', bgColor: 'bg-yellow-50' },
-  { id: '3', type: 'ticket', title: 'Ticket hoàn thành', description: 'Yêu cầu #T-0010 "Sửa máy in Canon 2900" đã được hoàn thành.', time: '2 giờ trước', read: false, icon: CheckCircle2, iconColor: 'text-green-600', bgColor: 'bg-green-50' },
-  { id: '4', type: 'chat', title: 'Tin nhắn mới', description: 'Sale Trần Hùng gửi tin nhắn: "Em đã gửi báo giá ạ"', time: '3 giờ trước', read: true, icon: MessageCircle, iconColor: 'text-purple-600', bgColor: 'bg-purple-50' },
-  { id: '5', type: 'maintenance', title: 'Nhắc bảo dưỡng', description: 'Máy in Canon LBP 2900 đã 6 tháng chưa bảo dưỡng. Đặt lịch ngay?', time: '1 ngày trước', read: true, icon: Wrench, iconColor: 'text-orange-600', bgColor: 'bg-orange-50' },
-  { id: '6', type: 'sla', title: 'Sale đã liên hệ', description: 'Sale Trần Hùng đã nhận yêu cầu #T-0012 và sẽ gọi cho bạn.', time: '2 ngày trước', read: true, icon: Bell, iconColor: 'text-gray-600', bgColor: 'bg-gray-50' },
-];
+interface RawTicket {
+  id: string;
+  title: string;
+  status: number;
+  attributes?: string;
+  createdAt?: string;
+  assignedTechId?: string;
+}
 
 type TabKey = 'all' | 'unread' | 'important';
 
 export default function NotificationsB2C() {
-  const [notifications, setNotifications] = useState<Notification[]>(initialNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('all');
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/sale/tickets?page_size=50')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && Array.isArray(data.tickets)) {
+          const list: Notification[] = [];
+          data.tickets.forEach((t: RawTicket, idx: number) => {
+            const shortId = t.id.slice(-6);
+            const timeStr = t.createdAt
+              ? new Date(t.createdAt).toLocaleDateString('vi-VN', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : 'Gần đây';
 
-  const handleMarkAllRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+            if (t.status === 1 || t.status === 3) {
+              list.push({
+                id: `notif-${t.id}-1`,
+                type: 'ticket',
+                title: `Đã tiếp nhận yêu cầu #${shortId}`,
+                description: `Yêu cầu "${t.title}" đã được ghi nhận vào hệ thống và đang điều phối KTV.`,
+                time: timeStr,
+                read: idx > 2,
+                icon: Clock,
+                iconColor: 'text-blue-600',
+                bgColor: 'bg-blue-50',
+              });
+            } else if (t.status === 5) {
+              list.push({
+                id: `notif-${t.id}-5`,
+                type: 'payment',
+                title: `Báo giá dịch vụ #${shortId}`,
+                description: `Báo giá cho "${t.title}" đã được duyệt. Vui lòng xác nhận tiến hành.`,
+                time: timeStr,
+                read: false,
+                icon: CreditCard,
+                iconColor: 'text-yellow-600',
+                bgColor: 'bg-yellow-50',
+              });
+            } else if (t.status === 7) {
+              list.push({
+                id: `notif-${t.id}-7`,
+                type: 'ticket',
+                title: `KTV đang xử lý #${shortId}`,
+                description: `Kỹ thuật viên đang thực hiện sửa chữa và kiểm tra thiết bị của bạn.`,
+                time: timeStr,
+                read: idx > 1,
+                icon: Wrench,
+                iconColor: 'text-orange-600',
+                bgColor: 'bg-orange-50',
+              });
+            } else if (t.status >= 9) {
+              list.push({
+                id: `notif-${t.id}-9`,
+                type: 'ticket',
+                title: `Dịch vụ hoàn tất – #${shortId}`,
+                description: `Yêu cầu "${t.title}" đã được nghiệm thu và hoàn thành bàn giao.`,
+                time: timeStr,
+                read: true,
+                icon: CheckCircle2,
+                iconColor: 'text-green-600',
+                bgColor: 'bg-green-50',
+              });
+            }
+          });
+
+          setNotifications(list);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load notifications', err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('/api/notifications/stream');
+      es.onmessage = (event) => {
+        try {
+          const notif = JSON.parse(event.data);
+          if (notif && notif.id) {
+            setNotifications((prev) => {
+              if (prev.some((p) => p.id === notif.id)) return prev;
+              const isHigh = notif.type === 'SLA' || notif.type === 'CRITICAL';
+              return [
+                {
+                  id: notif.id,
+                  type: notif.type?.toLowerCase() === 'payment' ? 'payment' : notif.type?.toLowerCase() === 'chat' ? 'chat' : isHigh ? 'sla' : 'ticket',
+                  title: notif.title || 'Thông báo mới',
+                  description: notif.content || '',
+                  time: 'Vừa xong',
+                  read: Boolean(notif.isRead),
+                  icon: isHigh ? Clock : Bell,
+                  iconColor: isHigh ? 'text-red-600' : 'text-blue-600',
+                  bgColor: isHigh ? 'bg-red-50' : 'bg-blue-50',
+                },
+                ...prev,
+              ];
+            });
+          }
+        } catch {
+        }
+      };
+    } catch (e) {
+      console.error('Notification SSE connection error:', e);
+    }
+
+    return () => {
+      if (es) es.close();
+    };
+  }, []);
+
+  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
+
+  const handleMarkSingleRead = async (id: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    try {
+      await internalApiClient.post('/api/notifications/read', { notificationId: id });
+    } catch {
+    }
   };
 
-  const filteredNotifications = notifications.filter((n) => {
-    if (activeTab === 'unread') return !n.read;
-    if (activeTab === 'important') return n.type === 'sla' || n.type === 'payment';
-    return true;
-  });
+  const handleMarkAllRead = async () => {
+    const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id);
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    unreadIds.forEach((id) => {
+      internalApiClient.post('/api/notifications/read', { notificationId: id }).catch(() => {});
+    });
+  };
+
+  const filteredNotifications = useMemo(() => {
+    return notifications.filter((n) => {
+      if (activeTab === 'unread') return !n.read;
+      if (activeTab === 'important') return n.type === 'sla' || n.type === 'payment';
+      return true;
+    });
+  }, [notifications, activeTab]);
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: 'all', label: 'Tất cả' },
@@ -59,7 +199,7 @@ export default function NotificationsB2C() {
   return (
     <div className="p-4 lg:p-8 max-w-2xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Thông báo</h1>
+        <h1 className="text-xl font-bold text-gray-900">Thông báo của bạn</h1>
         {unreadCount > 0 && (
           <button onClick={handleMarkAllRead} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
             Đánh dấu tất cả đã đọc
@@ -73,7 +213,7 @@ export default function NotificationsB2C() {
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium ${
+            className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
               activeTab === tab.key
                 ? 'bg-white text-blue-600 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700'
@@ -85,7 +225,12 @@ export default function NotificationsB2C() {
       </div>
 
       {/* Notification List */}
-      {filteredNotifications.length === 0 ? (
+      {loading ? (
+        <div className="py-16 text-center text-gray-400 bg-white rounded-xl border border-gray-100 shadow-sm">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-500" />
+          Đang tải thông báo...
+        </div>
+      ) : filteredNotifications.length === 0 ? (
         <EmptyState
           icon="bell"
           title="Không có thông báo"
@@ -98,6 +243,7 @@ export default function NotificationsB2C() {
             return (
               <div
                 key={notif.id}
+                onClick={() => handleMarkSingleRead(notif.id)}
                 className={`flex gap-3 p-4 rounded-xl border transition-colors cursor-pointer ${
                   notif.read
                     ? 'bg-white border-gray-100 hover:bg-gray-50'

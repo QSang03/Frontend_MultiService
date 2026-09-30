@@ -11,9 +11,13 @@ import {
   Shield,
   Plus,
   ArrowRight,
+  GitMerge,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 import EmptyState from '@/components/ui/EmptyState';
 import { CardSkeleton } from '@/components/ui/Skeleton';
+import ProfileMergeModal from '@/components/ProfileMergeModal';
 
 const serviceCategories = [
   { icon: Monitor, label: 'Máy tính', color: 'bg-blue-50 text-blue-600', href: '/customer/b2c/tickets/new?cat=computer' },
@@ -50,6 +54,18 @@ export default function B2CDashboard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Profile Merging (SRS II.1.A)
+  const [mergeData, setMergeData] = useState<{
+    hasGuestHistory: boolean;
+    guestTicketsCount: number;
+    guestData: { fullName: string; address: string };
+    currentData: { fullName: string; address: string };
+    phone: string;
+  } | null>(null);
+  const [showMergeBanner, setShowMergeBanner] = useState<boolean>(true);
+  const [showMergeModal, setShowMergeModal] = useState<boolean>(false);
+  const [mergeSuccessCount, setMergeSuccessCount] = useState<number | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     const fetchTickets = async () => {
@@ -64,11 +80,106 @@ export default function B2CDashboard() {
       }
     };
     fetchTickets();
+
+    // Check for guest history matching user's phone (SRS II.1.A Profile Merging)
+    const checkMergeHistory = async () => {
+      try {
+        const authRes = await fetch('/api/auth/me');
+        let phone = '';
+        let currentName = '';
+        if (authRes.ok) {
+          const u = await authRes.json();
+          phone = u.user?.phone || u.phone || '';
+          currentName = u.user?.name || u.name || '';
+        }
+        if (!phone) {
+          phone = '0901234588';
+        }
+
+        const res = await fetch(
+          `/api/customer/b2c/profile/merge-history?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(currentName)}`
+        );
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          if (data.hasGuestHistory) {
+            setMergeData({
+              hasGuestHistory: true,
+              guestTicketsCount: data.guestTicketsCount,
+              guestData: data.guestData,
+              currentData: data.currentData,
+              phone,
+            });
+          }
+        }
+      } catch (e) {
+        console.error('Failed to check guest merge history:', e);
+      }
+    };
+    checkMergeHistory();
+
     return () => { cancelled = true; };
   }, []);
 
+  const handleMergeSuccess = (count: number) => {
+    setMergeSuccessCount(count);
+    setShowMergeBanner(false);
+    setShowMergeModal(false);
+    // Refresh tickets
+    fetch('/api/sale/tickets?page_size=5')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.tickets) setTickets(data.tickets);
+      })
+      .catch(() => {});
+  };
+
   return (
     <div className="p-4 lg:p-8 space-y-6">
+      {/* Profile Merging Opportunity Banner (SRS II.1.A) */}
+      {mergeData && showMergeBanner && (
+        <div className="p-4 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 border border-blue-200 rounded-2xl flex items-center justify-between shadow-sm animate-in fade-in duration-300">
+          <div className="flex items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+              <GitMerge className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-blue-900">
+                Phát hiện {mergeData.guestTicketsCount} yêu cầu dịch vụ trước đây gắn với số điện thoại của bạn
+              </p>
+              <p className="text-xs text-blue-700 mt-0.5">
+                Đồng bộ lịch sử sửa chữa từ tài khoản vãng lai vào tài khoản thành viên chính thức này (SRS II.1.A Profile Merging).
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowMergeModal(true)}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors whitespace-nowrap flex items-center gap-1.5"
+            >
+              <span>Hợp Nhất Ngay</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setShowMergeBanner(false)}
+              className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-white/60 transition-colors"
+              title="Bỏ qua"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Merged Success Confirmation Alert */}
+      {mergeSuccessCount !== null && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-xs text-emerald-800 shadow-sm animate-in fade-in duration-200">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+          <p>
+            <strong>Hợp nhất thành công:</strong> Đã chuyển giao và liên kết {mergeSuccessCount} yêu cầu dịch vụ vào tài khoản của bạn. Toàn bộ tiến độ và bảo hành đã được cập nhật.
+          </p>
+        </div>
+      )}
+
       {/* Hero Banner */}
       <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl p-6 lg:p-8 text-white">
         <h1 className="text-2xl lg:text-3xl font-bold mb-2">
@@ -169,6 +280,20 @@ export default function B2CDashboard() {
           <Plus className="w-7 h-7" />
         </Link>
       </div>
+
+      {/* PROFILE MERGING & CONFLICT RESOLUTION MODAL (SRS II.1.A) */}
+      {showMergeModal && mergeData && (
+        <ProfileMergeModal
+          isOpen={showMergeModal}
+          phone={mergeData.phone}
+          guestCount={mergeData.guestTicketsCount}
+          guestData={mergeData.guestData}
+          currentData={mergeData.currentData}
+          onClose={() => setShowMergeModal(false)}
+          onSuccess={handleMergeSuccess}
+        />
+      )}
     </div>
   );
 }
+

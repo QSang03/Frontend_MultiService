@@ -314,28 +314,34 @@ export default function SystemSettingsPage() {
 
                 {/* Tech Status Summary Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
-                  {technicians.slice(0, 3).map((tech) => (
-                    <div key={tech.id} className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-bold text-gray-900">{tech.name}</span>
-                        <span
-                          className={`px-1.5 py-0.5 rounded uppercase font-semibold text-[10px] ${
-                            tech.status === 'critical'
-                              ? 'bg-red-100 text-red-700'
-                              : tech.status === 'available'
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-blue-100 text-blue-700'
-                          }`}
-                        >
-                          {tech.status}
-                        </span>
-                      </div>
-                      <p className="text-gray-500">{tech.assignedArea || 'Khu vực Trung tâm'}</p>
-                      {tech.currentTicket && (
-                        <p className="text-blue-600 font-medium mt-1">Đang xử lý: {tech.currentTicket}</p>
-                      )}
+                  {technicians.length === 0 ? (
+                    <div className="col-span-3 p-4 bg-gray-50 border border-dashed border-gray-300 rounded-lg text-center text-xs text-gray-500">
+                      Hiện chưa có KTV nào đang trực tuyến hoặc phát tín hiệu GPS.
                     </div>
-                  ))}
+                  ) : (
+                    technicians.slice(0, 3).map((tech) => (
+                      <div key={tech.id} className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-xs">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-bold text-gray-900">{tech.name}</span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded uppercase font-semibold text-[10px] ${
+                              tech.status === 'critical'
+                                ? 'bg-red-100 text-red-700'
+                                : tech.status === 'available'
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-blue-100 text-blue-700'
+                            }`}
+                          >
+                            {tech.status}
+                          </span>
+                        </div>
+                        <p className="text-gray-500">{tech.assignedArea || 'Khu vực Trung tâm'}</p>
+                        {tech.currentTicket && (
+                          <p className="text-blue-600 font-medium mt-1">Đang xử lý: {tech.currentTicket}</p>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>
@@ -355,30 +361,36 @@ export default function SystemSettingsPage() {
                 </div>
 
                 <div className="space-y-3">
-                  {pendingDispatch.map((item) => (
-                    <div key={item.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3.5 hover:border-gray-300 transition-colors">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="font-semibold text-sm text-gray-900">{item.ticketCode}</span>
-                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${item.priorityColor}`}>
-                          {item.priority}
-                        </span>
-                      </div>
-                      <p className="text-xs font-medium text-gray-800 line-clamp-1 mb-1">{item.title}</p>
-                      <p className="text-xs text-gray-500 flex items-center gap-1 mb-3">
-                        <MapPin className="w-3.5 h-3.5 text-gray-400" />
-                        {item.location}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <Link
-                          href={`/admin/tickets?q=${encodeURIComponent(item.ticketCode)}`}
-                          className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium text-center transition-colors"
-                        >
-                          Điều phối ngay
-                        </Link>
-                        <span className="text-[11px] text-gray-400 whitespace-nowrap">{item.timeAgo}</span>
-                      </div>
+                  {pendingDispatch.length === 0 ? (
+                    <div className="p-6 bg-gray-50 border border-dashed border-gray-300 rounded-lg text-center text-xs text-gray-500">
+                      Không có ticket nào chờ điều phối gấp.
                     </div>
-                  ))}
+                  ) : (
+                    pendingDispatch.map((item) => (
+                      <div key={item.id} className="bg-gray-50 border border-gray-200 rounded-lg p-3.5 hover:border-gray-300 transition-colors">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="font-semibold text-sm text-gray-900">{item.ticketCode}</span>
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${item.priorityColor}`}>
+                            {item.priority}
+                          </span>
+                        </div>
+                        <p className="text-xs font-medium text-gray-800 line-clamp-1 mb-1">{item.title}</p>
+                        <p className="text-xs text-gray-500 flex items-center gap-1 mb-3">
+                          <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                          {item.location}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/admin/tickets?q=${encodeURIComponent(item.ticketCode)}`}
+                            className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium text-center transition-colors"
+                          >
+                            Điều phối ngay
+                          </Link>
+                          <span className="text-[11px] text-gray-400 whitespace-nowrap">{item.timeAgo}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -559,7 +571,7 @@ export default function SystemSettingsPage() {
                       </div>
                       <div className="flex-1">
                         <h3 className="font-semibold text-sm text-gray-900">Twilio (Cổng tin nhắn SMS OTP & Alert)</h3>
-                        <p className="text-xs text-gray-500">3,850 / 5,000 SMS đã gửi trong tháng</p>
+                        <p className="text-xs text-gray-500">Cổng SMS OTP & thông báo sự cố khẩn cấp cho KTV</p>
                       </div>
                       <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-green-100 text-green-700">
                         Đang kết nối
@@ -574,7 +586,7 @@ export default function SystemSettingsPage() {
                       </div>
                       <div className="flex-1">
                         <h3 className="font-semibold text-sm text-gray-900">SendGrid (Email Transactional & Báo giá)</h3>
-                        <p className="text-xs text-gray-500">12,400 / 25,000 Emails đã gửi trong tháng</p>
+                        <p className="text-xs text-gray-500">Cổng Email gửi hợp đồng, báo giá & báo cáo sự cố</p>
                       </div>
                       <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-green-100 text-green-700">
                         Đang kết nối
@@ -589,7 +601,7 @@ export default function SystemSettingsPage() {
                       </div>
                       <div className="flex-1">
                         <h3 className="font-semibold text-sm text-gray-900">Firebase Cloud Messaging (FCM Push App)</h3>
-                        <p className="text-xs text-gray-500">~1,200 thông báo đẩy cho KTV / Khách hàng</p>
+                        <p className="text-xs text-gray-500">Cổng Push Notification điều phối ca trực cho mobile app KTV</p>
                       </div>
                       <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-green-100 text-green-700">
                         Đang kết nối

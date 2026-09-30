@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { X, Sparkles, CheckCircle2, UserCheck, Award, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface CandidateScore {
@@ -40,7 +40,7 @@ export default function SmartDispatchModal({
   const [assignError, setAssignError] = useState<string | null>(null);
   const [assignedDone, setAssignedDone] = useState(false);
 
-  const fetchCandidates = async () => {
+  const fetchCandidates = useCallback(async () => {
     if (!ticketId) return;
     setIsLoading(true);
     setLoadError(null);
@@ -60,7 +60,7 @@ export default function SmartDispatchModal({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [ticketId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -68,7 +68,7 @@ export default function SmartDispatchModal({
       setAssignError(null);
       fetchCandidates();
     }
-  }, [isOpen, ticketId]);
+  }, [isOpen, fetchCandidates]);
 
   if (!isOpen) return null;
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Search, 
   MapPin, 
@@ -11,6 +11,8 @@ import {
   Plus, 
   Send, 
   Wifi, 
+  WifiOff,
+  AlertCircle,
   ChevronRight, 
   FileSignature, 
   ShieldCheck, 
@@ -18,11 +20,24 @@ import {
   Scale, 
   AlertTriangle, 
   Lock, 
-  Save
+  Save,
+  Trash2,
+  Loader2,
+  X,
+  Maximize2,
+  PauseCircle,
+  Play,
+  QrCode,
+  ListTodo,
+  Sparkles
 } from 'lucide-react';
 import DigitalHandoverModal from '@/components/DigitalHandoverModal';
 import TechDisputeModal from '@/components/TechDisputeModal';
 import StartJobModal from '@/components/StartJobModal';
+import SlaStopClockModal from '@/components/SlaStopClockModal';
+import TechAssetLookupModal from '@/components/TechAssetLookupModal';
+import TicketSubTasksModal, { TicketSubTask } from '@/components/TicketSubTasksModal';
+import TicketMaterialsManager from '@/components/TicketMaterialsManager';
 import internalApiClient from '@/lib/api/internal-client';
 
 type Priority = 'Low' | 'Medium' | 'High' | 'Critical';
@@ -43,6 +58,12 @@ interface Job {
   handoverId?: string;
   handoverSignTime?: string;
   handoverSignee?: string;
+  rawAttributes?: string;
+  slaPaused?: boolean;
+  slaPauseReason?: string;
+  slaPauseNotes?: string;
+  slaPausedAt?: string;
+  slaTotalPausedMinutes?: number;
 }
 
 interface TeamMember {
@@ -54,77 +75,27 @@ interface TeamMember {
   leadPct: number;
 }
 
-const INITIAL_JOBS: Job[] = [
-  {
-    id: 'T-2025-001',
-    title: 'Server Rack Maintenance & Cooling Check',
-    client: 'TechCorp Enterprise',
-    priority: 'High',
-    status: 'IN PROGRESS',
-    address: '123 Innovation Dr, Tech Park, Zone A',
-    distance: '2.4 km',
-    time: '10:55',
-    dueDate: '10:55:02 11/2/2026',
-    description: 'Perform monthly maintenance on Server Rack A01. Check cooling fans and replace filter.',
-  },
-  {
-    id: 'T-2025-002',
-    title: 'Printer Network Configuration',
-    client: 'Lawson Logistics',
-    priority: 'Medium',
-    status: 'DISPATCHED',
-    address: '456 Supply Chain Blvd',
-    distance: '5.1 km',
-    time: '12:51',
-    dueDate: '14:00:00 11/2/2026',
-    description: 'Configure network settings for new warehouse printers.',
-  },
-  {
-    id: 'T-2025-003',
-    title: 'Workstation OS Upgrade Failure',
-    client: 'Design Studio X',
-    priority: 'Critical',
-    status: 'NEW',
-    address: '789 Creative Ave',
-    distance: '1.2 km',
-    time: '09:53',
-    dueDate: '10:00:00 11/2/2026',
-    description: 'Multiple workstations failed OS upgrade. Urgent fix required.',
-  },
-  {
-    id: 'T-2025-004',
-    title: 'CCTV Camera Alignment',
-    client: 'Retail Chain Z',
-    priority: 'Low',
-    status: 'COMPLETED',
-    address: '101 Market St',
-    distance: '8.0 km',
-    time: '09:55',
-    dueDate: '16:00:00 10/2/2026',
-    description: 'Re-align entrance cameras.',
-    handoverId: 'HO-2025-998',
-    handoverSignee: 'Tran Van Quan Ly',
-    handoverSignTime: '10/02/2026 15:45',
-  },
-];
-
-const INITIAL_TEAM_MEMBERS: TeamMember[] = [
-  { id: 'TM-1', name: 'Nguyen Van Ky Thuat (Tech Lead)', role: 'LEAD', timePct: 40, effortPct: 40, leadPct: 70 },
-  { id: 'TM-2', name: 'Le Van Hai (Technician 1)', role: 'TECH', timePct: 35, effortPct: 40, leadPct: 15 },
-  { id: 'TM-3', name: 'Tran Minh Tri (Technician 2)', role: 'TECH', timePct: 25, effortPct: 20, leadPct: 15 },
-];
+interface EvidencePhoto {
+  id: string;
+  name: string;
+  originalSize: number;
+  compressedSize: number;
+  dataUrl: string;
+  timestamp: string;
+}
 
 const TABS = [
-  { id: 'info', label: 'Thong tin' },
-  { id: 'execute', label: 'Thuc hien' },
-  { id: 'materials', label: 'Vat tu' },
+  { id: 'info', label: 'Thông tin' },
+  { id: 'execute', label: 'Thực hiện' },
+  { id: 'materials', label: 'Vật tư' },
   { id: 'split', label: 'Team Split (24h Review)' },
-  { id: 'chat', label: 'Trao doi' },
+  { id: 'chat', label: 'Trao đổi' },
 ];
 
 export default function TechTasksPage() {
-  const [jobs, setJobs] = useState<Job[]>(INITIAL_JOBS);
-  const [selectedJobId, setSelectedJobId] = useState<string>(INITIAL_JOBS[0].id);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string>('');
+  const [isLoadingJobs, setIsLoadingJobs] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>('info');
   const [filter, setFilter] = useState<'All' | 'Active' | 'History'>('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -136,12 +107,276 @@ export default function TechTasksPage() {
   const [safetyPassed, setSafetyPassed] = useState(false);
   const [replacedParts, setReplacedParts] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [jobDuration, setJobDuration] = useState<{ minutes: number; completionTime: string } | null>(null);
+  const [, setJobDuration] = useState<{ minutes: number; completionTime: string } | null>(null);
 
-  const handleStartJobSuccess = (minutes: number, notes: string) => {
+  // Client-side Media Compression (SRS V.2 - Max width 1920px, Quality 80%)
+  const [evidencePhotos, setEvidencePhotos] = useState<EvidencePhoto[]>([]);
+  const [isCompressing, setIsCompressing] = useState<boolean>(false);
+  const [previewPhoto, setPreviewPhoto] = useState<EvidencePhoto | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+  };
+
+  const compressImage = async (file: File): Promise<EvidencePhoto> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (readerEvent) => {
+        const img = new window.Image();
+        img.onload = () => {
+          // SRS V.2: Resize/Compress tự động (Max dimension 1920px, Quality 80%)
+          const MAX_DIMENSION = 1920;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_DIMENSION) {
+              height = Math.round((height * MAX_DIMENSION) / width);
+              width = MAX_DIMENSION;
+            }
+          } else {
+            if (height > MAX_DIMENSION) {
+              width = Math.round((width * MAX_DIMENSION) / height);
+              height = MAX_DIMENSION;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Failed to get canvas 2d context'));
+            return;
+          }
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convert to JPEG with 0.8 quality
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+          
+          const head = 'data:image/jpeg;base64,';
+          const base64Length = dataUrl.length - head.length;
+          const compressedSize = Math.round((base64Length * 3) / 4);
+
+          resolve({
+            id: `photo-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            name: file.name,
+            originalSize: file.size,
+            compressedSize,
+            dataUrl,
+            timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+          });
+        };
+        img.onerror = () => reject(new Error('Failed to load image for compression'));
+        if (typeof readerEvent.target?.result === 'string') {
+          img.src = readerEvent.target.result;
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsCompressing(true);
+    try {
+      const validImageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+      const compressedList = await Promise.all(validImageFiles.map(compressImage));
+      setEvidencePhotos(prev => [...prev, ...compressedList]);
+    } catch (err) {
+      console.error('Lỗi khi nén ảnh hiện trường:', err);
+    } finally {
+      setIsCompressing(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleRemovePhoto = (id: string) => {
+    setEvidencePhotos(prev => prev.filter(p => p.id !== id));
+  };
+
+  // SLA Stop-the-Clock State (SRS III.7)
+  const [showSlaPauseModal, setShowSlaPauseModal] = useState<boolean>(false);
+  const [isResumingSla, setIsResumingSla] = useState<boolean>(false);
+
+  // Asset QR & Serial Lookup State (SRS III.6)
+  const [showAssetLookupModal, setShowAssetLookupModal] = useState<boolean>(false);
+
+  const handleAssetSelect = (serial: string, name: string) => {
+    setReplacedParts((prev) => (prev ? `${prev}, ${name} (SN: ${serial})` : `${name} (SN: ${serial})`));
+  };
+
+  const handleSlaPauseSuccess = (result: {
+    slaPaused: boolean;
+    slaPauseReason?: string;
+    slaPauseNotes?: string;
+    slaPausedAt?: string;
+    slaTotalPausedMinutes?: number;
+  }) => {
+    if (selectedJob) {
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === selectedJob.id
+            ? {
+                ...j,
+                slaPaused: result.slaPaused,
+                slaPauseReason: result.slaPauseReason,
+                slaPauseNotes: result.slaPauseNotes,
+                slaPausedAt: result.slaPausedAt,
+                slaTotalPausedMinutes: result.slaTotalPausedMinutes,
+              }
+            : j
+        )
+      );
+    }
+  };
+
+  const handleResumeSla = async (jobId: string) => {
+    if (!selectedJob) return;
+    setIsResumingSla(true);
+    try {
+      const res = await fetch('/api/tech/tasks/sla-pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId: jobId,
+          action: 'RESUME',
+          notes: 'Kỹ thuật viên tiếp tục thực hiện công việc',
+          currentAttributes: selectedJob.rawAttributes,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        handleSlaPauseSuccess(data);
+      }
+    } catch (err) {
+      console.error('Failed to resume SLA:', err);
+    } finally {
+      setIsResumingSla(false);
+    }
+  };
+
+    // Sub-tasks State (SRS III.3 - Task Breakdown & Multi-Tech Execution)
+  const [liveSubTasks, setLiveSubTasks] = useState<TicketSubTask[]>([]);
+  const [isLoadingSubTasks, setIsLoadingSubTasks] = useState<boolean>(false);
+  const [showSubTasksModal, setShowSubTasksModal] = useState<boolean>(false);
+
+  const fetchLiveSubTasks = useCallback(async (jobId: string) => {
+    if (!jobId) return;
+    setIsLoadingSubTasks(true);
+    try {
+      const res = await fetch(`/api/admin/tickets/${jobId}/tasks`);
+      if (res.ok) {
+        const data = await res.json();
+        setLiveSubTasks(data.tasks || []);
+      }
+    } catch (err) {
+      console.error('Failed to load live sub-tasks:', err);
+    } finally {
+      setIsLoadingSubTasks(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedJobId) {
+      fetchLiveSubTasks(selectedJobId);
+    }
+  }, [selectedJobId, fetchLiveSubTasks]);
+
+  const handleToggleSubTask = async (task: TicketSubTask) => {
+    if (!selectedJob) return;
+    const isCompleted = task.status === 'COMPLETED';
+    const nextStatus = isCompleted ? 'PENDING' : 'COMPLETED';
+    try {
+      await fetch(`/api/admin/tickets/${selectedJob.id}/tasks`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          taskId: task.id,
+          status: nextStatus,
+          actualMinutes: task.actualMinutes || (nextStatus === 'COMPLETED' ? task.estimatedMinutes : 0),
+        }),
+      });
+      fetchLiveSubTasks(selectedJob.id);
+    } catch (err) {
+      console.error('Failed to toggle sub-task status:', err);
+    }
+  };
+
+  const handleQuickCreateStandardTasks = async () => {
+    if (!selectedJob) return;
+    const STANDARD_TEMPLATES = [
+      { title: 'Khảo sát hiện trường & Chẩn đoán lỗi phần cứng/mạng', estimatedMinutes: 30 },
+      { title: 'Thay thế linh kiện & Thi công cấu hình kỹ thuật', estimatedMinutes: 60 },
+      { title: 'Kiểm thử tải & Đảm bảo tiêu chuẩn vận hành', estimatedMinutes: 30 },
+      { title: 'Vệ sinh công nghiệp, Thu dọn & Ký số nghiệm thu', estimatedMinutes: 20 },
+    ];
+    try {
+      setIsLoadingSubTasks(true);
+      for (const tpl of STANDARD_TEMPLATES) {
+        await fetch(`/api/admin/tickets/${selectedJob.id}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: tpl.title,
+            description: '',
+            estimatedMinutes: tpl.estimatedMinutes,
+          }),
+        });
+      }
+      fetchLiveSubTasks(selectedJob.id);
+    } catch (err) {
+      console.error('Failed to create standard tasks:', err);
+    } finally {
+      setIsLoadingSubTasks(false);
+    }
+  };
+
+  // Network Online Listener (SRS V.2 - Offline-first Architecture)
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setIsOnline(navigator.onLine);
+      const handleOnline = () => setIsOnline(true);
+      const handleOffline = () => setIsOnline(false);
+
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }
+  }, []);
+
+  // Live Chat state for active job
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; senderId?: string; content: string; createdAt?: string }>>([]);
+  const [chatRoomId, setChatRoomId] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState('');
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [isLoadingChat, setIsLoadingChat] = useState(false);
+
+  const handleStartJobSuccess = (minutes: number) => {
     const compTime = new Date(Date.now() + minutes * 60000).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     setJobDuration({ minutes, completionTime: compTime });
-    setJobs(prev => prev.map(j => j.id === selectedJob.id ? { ...j, status: 'IN PROGRESS' } : j));
+    if (selectedJob) {
+      setJobs(prev => prev.map(j => j.id === selectedJob.id ? { ...j, status: 'IN PROGRESS' } : j));
+    }
     setShowStartJobModal(false);
     setActiveTab('execute');
   };
@@ -155,31 +390,39 @@ export default function TechTasksPage() {
       setValidationError('Bắt buộc xác nhận đã kiểm tra an toàn điện & ESD trước khi nghiệm thu!');
       return;
     }
+    if (evidencePhotos.length === 0) {
+      setValidationError('Vui lòng chụp hoặc tải ít nhất 1 ảnh bằng chứng hiện trường (SRS V.2: Compression < 500KB)!');
+      return;
+    }
     setValidationError(null);
     setShowHandoverModal(true);
   };
 
   // Team Split State (SRS III.4)
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(INITIAL_TEAM_MEMBERS);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [isLocked24h, setIsLocked24h] = useState(false);
   const [splitSavedSuccess, setSplitSavedSuccess] = useState(false);
   const [disputeSuccessAlert, setDisputeSuccessAlert] = useState(false);
-  const [timeLeftSec, setTimeLeftSec] = useState(67420); // ~18 hours 43 min
+  const [timeLeftSec, setTimeLeftSec] = useState(0); // populated from API split endpoint
 
   // Fetch real jobs from backend
   useEffect(() => {
     async function loadRealJobs() {
+      setIsLoadingJobs(true);
       try {
         const res = await fetch('/api/tech/tasks');
         if (res.ok) {
           const data = await res.json();
-          if (data.jobs && data.jobs.length > 0) {
-            setJobs(data.jobs);
-            setSelectedJobId(data.jobs[0].id);
+          const fetched: Job[] = data.jobs || [];
+          setJobs(fetched);
+          if (fetched.length > 0) {
+            setSelectedJobId(prev => prev || fetched[0].id);
           }
         }
       } catch (err) {
-        console.warn('Using initial jobs fallback:', err);
+        console.error('Failed to load real tech jobs:', err);
+      } finally {
+        setIsLoadingJobs(false);
       }
     }
     loadRealJobs();
@@ -203,6 +446,17 @@ export default function TechTasksPage() {
             })));
             if (split.isLocked != null) setIsLocked24h(split.isLocked);
             if (split.reviewExpiresInSeconds != null) setTimeLeftSec(split.reviewExpiresInSeconds);
+          } else {
+            setTeamMembers([
+              {
+                id: 'lead-1',
+                name: 'Kỹ thuật viên phụ trách',
+                role: 'LEAD',
+                timePct: 100,
+                effortPct: 100,
+                leadPct: 100,
+              },
+            ]);
           }
         } catch {
           // keep local state
@@ -211,6 +465,65 @@ export default function TechTasksPage() {
       loadLiveSplit();
     }
   }, [activeTab, selectedJobId]);
+
+  // Live chat connection for current selected job
+  useEffect(() => {
+    if (activeTab === 'chat' && selectedJobId) {
+      let isMounted = true;
+      async function loadLiveChat() {
+        setIsLoadingChat(true);
+        try {
+          const roomRes = await fetch(`/api/sale/chat/ticket-room?ticket_id=${encodeURIComponent(selectedJobId)}`);
+          if (roomRes.ok) {
+            const roomData = await roomRes.json();
+            const rId = roomData.room?.id;
+            if (rId && isMounted) {
+              setChatRoomId(rId);
+              const msgRes = await fetch(`/api/sale/chat/messages?room_id=${encodeURIComponent(rId)}&page_size=50`);
+              if (msgRes.ok) {
+                const msgData = await msgRes.json();
+                if (isMounted) setChatMessages(msgData.messages || []);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load job chat:', e);
+        } finally {
+          if (isMounted) setIsLoadingChat(false);
+        }
+      }
+      loadLiveChat();
+      const interval = setInterval(loadLiveChat, 4000);
+      return () => {
+        isMounted = false;
+        clearInterval(interval);
+      };
+    }
+  }, [activeTab, selectedJobId]);
+
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim() || !chatRoomId || isSendingMessage) return;
+    const text = chatInput.trim();
+    setChatInput('');
+    setIsSendingMessage(true);
+    try {
+      const res = await fetch('/api/sale/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: chatRoomId, content: text }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.message) {
+          setChatMessages(prev => [...prev, data.message]);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to send chat message:', e);
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
 
   useEffect(() => {
     if (isLocked24h || timeLeftSec <= 0) return;
@@ -235,7 +548,7 @@ export default function TechTasksPage() {
     'Clean Up Site': false,
   });
 
-  const selectedJob = jobs.find(j => j.id === selectedJobId) || jobs[0];
+  const selectedJob = jobs.find(j => j.id === selectedJobId) || jobs[0] || null;
 
   const filteredJobs = jobs.filter(job => {
     const matchesFilter = 
@@ -272,11 +585,13 @@ export default function TechTasksPage() {
   };
 
   const handleStartJob = () => {
+    if (!selectedJob) return;
     setJobs(prev => prev.map(j => j.id === selectedJob.id ? { ...j, status: 'IN PROGRESS' } : j));
     setActiveTab('execute');
   };
 
   const handleHandoverSuccess = (handoverId: string) => {
+    if (!selectedJob) return;
     const nowStr = new Date().toLocaleString('vi-VN');
     setJobs(prev => prev.map(j => j.id === selectedJob.id ? {
       ...j,
@@ -305,6 +620,7 @@ export default function TechTasksPage() {
   };
 
   const handleSaveSplit = async () => {
+    if (!selectedJob) return;
     try {
       await internalApiClient.put(`/api/admin/tickets/${selectedJob.id}/split`, {
         members: teamMembers.map((m) => ({
@@ -380,9 +696,14 @@ export default function TechTasksPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50/50">
-          {filteredJobs.length === 0 ? (
+          {isLoadingJobs ? (
+            <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <span className="text-xs">Đang tải công việc...</span>
+            </div>
+          ) : filteredJobs.length === 0 ? (
             <div className="text-center py-12 text-sm text-gray-400">
-              Không tìm thấy công việc nào
+              {searchQuery ? 'Không tìm thấy công việc phù hợp' : 'Chưa có công việc nào được phân công'}
             </div>
           ) : (
             filteredJobs.map((job) => (
@@ -433,8 +754,24 @@ export default function TechTasksPage() {
 
       {/* RIGHT SIDE - DETAILS */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50">
-        {/* HEADER */}
-        <div className="bg-white px-8 py-5 flex items-center justify-between shadow-sm z-0">
+        {!selectedJob ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+            <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
+              <CheckCircle2 className="w-8 h-8" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">
+              {isLoadingJobs ? 'Đang kết nối trung tâm điều phối...' : 'Chưa chọn công việc'}
+            </h3>
+            <p className="text-sm text-gray-500 max-w-sm">
+              {isLoadingJobs 
+                ? 'Hệ thống đang tải danh sách nhiệm vụ kỹ thuật được chỉ định cho bạn.' 
+                : 'Vui lòng chọn một công việc từ danh sách bên trái để xem chi tiết hoặc thực hiện.'}
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* HEADER */}
+            <div className="bg-white px-8 py-5 flex items-center justify-between shadow-sm z-0">
           <div>
             <div className="flex items-center gap-3 mb-1">
               <span className="font-bold text-xl text-gray-900 tracking-tight">{selectedJob.id}</span>
@@ -448,8 +785,76 @@ export default function TechTasksPage() {
             <h2 className="text-sm text-gray-500">{selectedJob.title}</h2>
           </div>
           <div className="flex items-center gap-3">
-             <div className="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center text-green-600 cursor-pointer hover:bg-green-100 transition-colors" title="Online and Syncing">
-                <Wifi className="w-5 h-5" />
+             {/* SLA STOP-THE-CLOCK CONTROL (SRS III.7) */}
+             {selectedJob.slaPaused ? (
+               <div className="flex items-center gap-2">
+                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-500 text-white shadow-sm animate-pulse">
+                   <PauseCircle className="w-4 h-4" />
+                   <span>SLA Đang Tạm Dừng</span>
+                 </div>
+                 <button
+                   type="button"
+                   onClick={() => void handleResumeSla(selectedJob.id)}
+                   disabled={isResumingSla}
+                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors"
+                 >
+                   <Play className="w-3.5 h-3.5" />
+                   <span>{isResumingSla ? 'Đang kích hoạt...' : 'Tiếp Tục SLA'}</span>
+                 </button>
+               </div>
+             ) : (
+               <button
+                 type="button"
+                 onClick={() => setShowSlaPauseModal(true)}
+                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition-colors shadow-sm"
+                 title="Tạm dừng đồng hồ đếm ngược SLA (Stop-the-Clock) theo quy định SRS III.7"
+               >
+                 <PauseCircle className="w-3.5 h-3.5 text-amber-600" />
+                 <span>Tạm Dừng SLA</span>
+               </button>
+             )}
+
+             {/* SUB-TASKS BREAKDOWN BUTTON (SRS III.3) */}
+              <button
+                type="button"
+                onClick={() => setShowSubTasksModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors shadow-sm"
+                title="Phân tách nhiệm vụ & Điều phối Sub-tasks (SRS III.3)"
+              >
+                <ListTodo className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Hạng Mục Sub-tasks ({liveSubTasks.filter(t => t.status === 'COMPLETED').length}/{liveSubTasks.length})</span>
+              </button>
+
+              {/* ASSET QR & SERIAL LOOKUP BUTTON (SRS III.6) */}
+             <button
+               type="button"
+               onClick={() => setShowAssetLookupModal(true)}
+               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors shadow-sm"
+               title="Tra cứu thông số, lịch sử TCO của thiết bị bằng mã QR hoặc số Serial (SRS III.6)"
+             >
+               <QrCode className="w-3.5 h-3.5 text-blue-600" />
+               <span>Tra Cứu Tài Sản / QR</span>
+             </button>
+
+             <div 
+               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                 isOnline 
+                   ? 'bg-green-50 border-green-200 text-green-700' 
+                   : 'bg-amber-50 border-amber-200 text-amber-800'
+               }`} 
+               title={isOnline ? 'Đang kết nối Server (Online & Syncing)' : 'Đang hoạt động ngoại tuyến (Offline Mode - SRS V.2)'}
+             >
+                {isOnline ? (
+                  <>
+                    <Wifi className="w-4 h-4 text-green-600" />
+                    <span>Trực tuyến (Syncing)</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="w-4 h-4 text-amber-600 animate-pulse" />
+                    <span>Ngoại tuyến (Offline Mode)</span>
+                  </>
+                )}
              </div>
           </div>
         </div>
@@ -477,6 +882,44 @@ export default function TechTasksPage() {
             
             {activeTab === 'info' && (
               <>
+                {/* SLA STOP-THE-CLOCK STATUS BANNER (SRS III.7) */}
+                {selectedJob.slaPaused && (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-950 flex items-start justify-between gap-3 shadow-sm">
+                    <div className="flex items-start gap-2.5">
+                      <PauseCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <p className="font-bold text-sm text-amber-900">
+                          Đồng Hồ Cam Kết SLA Đang Tạm Dừng (Stop-the-Clock Active - SRS III.7)
+                        </p>
+                        <p className="text-amber-800">
+                          <strong>Lý do:</strong> {
+                            selectedJob.slaPauseReason === 'PENDING_CUSTOMER' ? 'Chờ khách hàng phản hồi (Pending Customer)' :
+                            selectedJob.slaPauseReason === 'PENDING_PARTS' ? 'Chờ linh kiện thay thế / Vendor RMA (Pending Parts)' :
+                            'Đã hẹn lịch thực hiện cố định (Scheduled)'
+                          }
+                        </p>
+                        {selectedJob.slaPauseNotes && (
+                          <p className="text-amber-700">
+                            <strong>Ghi chú giải trình:</strong> {selectedJob.slaPauseNotes}
+                          </p>
+                        )}
+                        <p className="text-[11px] text-amber-600">
+                          Tạm dừng lúc: {selectedJob.slaPausedAt ? new Date(selectedJob.slaPausedAt).toLocaleString('vi-VN') : 'Vừa xong'} • Đã tích lũy tạm dừng: {selectedJob.slaTotalPausedMinutes || 0} phút.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleResumeSla(selectedJob.id)}
+                      disabled={isResumingSla}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs whitespace-nowrap shadow-sm transition-colors flex items-center gap-1.5"
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      Tiếp Tục SLA
+                    </button>
+                  </div>
+                )}
+
                 <div className="bg-white rounded-2xl p-6 shadow-sm">
                   <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-4">Customer Details</h3>
                   <h4 className="text-xl font-bold text-gray-900 mb-2">{selectedJob.client}</h4>
@@ -513,17 +956,37 @@ export default function TechTasksPage() {
                    </div>
                 </div>
 
+                {/* Offline Warning Banner if Offline (SRS V.2 Strict-Online Action Constraint) */}
+                {!isOnline && ['NEW', 'DISPATCHED'].includes(selectedJob.status) && (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <span className="font-bold text-amber-950">Chặn hành động nhận việc khi Ngoại tuyến (SRS V.2):</span>
+                      <p className="text-amber-800 leading-relaxed">
+                        Bạn đang ở chế độ Offline. Vui lòng kết nối Internet để xác thực tình trạng Ticket hiện tại từ Server, ngăn ngừa tình trạng nhận việc trùng lặp (Race Condition) tại hiện trường.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {['NEW', 'DISPATCHED', 'IN PROGRESS'].includes(selectedJob.status) && (
                    <button 
+                     disabled={!isOnline && ['NEW', 'DISPATCHED'].includes(selectedJob.status)}
                      onClick={() => setShowStartJobModal(true)}
                      className={`w-full py-4 text-white font-bold text-lg rounded-2xl shadow-xl transition-all active:scale-[0.99] flex items-center justify-center gap-3 ${
-                       selectedJob.status === 'IN PROGRESS' 
+                       !isOnline && ['NEW', 'DISPATCHED'].includes(selectedJob.status)
+                         ? 'bg-gray-400 cursor-not-allowed shadow-none'
+                         : selectedJob.status === 'IN PROGRESS' 
                          ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/20' 
                          : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20'
                      }`}
                    >
                       <CheckCircle2 className="w-6 h-6" />
-                      {selectedJob.status === 'IN PROGRESS' ? 'Continue Service Job' : 'Start Service Job'}
+                      {!isOnline && ['NEW', 'DISPATCHED'].includes(selectedJob.status)
+                        ? 'Yêu cầu kết nối mạng để nhận việc (Offline Mode)'
+                        : selectedJob.status === 'IN PROGRESS' 
+                        ? 'Continue Service Job' 
+                        : 'Start Service Job'}
                    </button>
                 )}
 
@@ -562,49 +1025,234 @@ export default function TechTasksPage() {
                    </div>
                  ) : (
                    <>
-                     <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-                        <div className="px-6 py-4 bg-gray-50/50">
-                          <h3 className="font-semibold text-gray-900">Service Job Checklist</h3>
-                        </div>
-                        <div className="p-4 space-y-3">
-                          {Object.entries(checklist).map(([item, checked]) => (
-                            <label 
-                              key={item} 
-                              onClick={() => toggleChecklistItem(item)}
-                              className="flex items-center gap-3 p-3 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors group"
+                     {/* LIVE SUB-TASKS EXECUTION CHECKLIST (SRS III.3) */}
+                     <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
+                        <div className="px-6 py-4 bg-gray-50/50 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ListTodo className="w-4 h-4 text-blue-600" />
+                            <h3 className="font-semibold text-gray-900 text-sm">Hạng Mục Kỹ Thuật Hiện Trường (SRS III.3 Tasks)</h3>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowSubTasksModal(true)}
+                              className="px-2.5 py-1 bg-white hover:bg-gray-50 border border-gray-200 text-blue-600 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 shadow-sm"
                             >
-                               <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
-                                 checked 
-                                   ? 'bg-blue-600 border-blue-600 text-white' 
-                                   : 'bg-white border-gray-300 group-hover:border-blue-500'
-                               }`}>
-                                  {checked && <Check className="w-3.5 h-3.5" />}
-                               </div>
-                               <span className={`text-sm ${checked ? 'text-gray-900 font-medium' : 'text-gray-600'}`}>{item}</span>
-                            </label>
-                          ))}
+                              <Plus className="w-3.5 h-3.5" />
+                              Quản Lý / Thêm Việc
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        {liveSubTasks.length > 0 && (
+                          <div className="px-6 py-2.5 bg-blue-50/40 border-b border-blue-100/60 flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2 flex-1 max-w-xs">
+                              <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-blue-600 rounded-full transition-all duration-300"
+                                  style={{
+                                    width: `${Math.round((liveSubTasks.filter(t => t.status === 'COMPLETED').length / liveSubTasks.length) * 100)}%`
+                                  }}
+                                />
+                              </div>
+                              <span className="font-bold text-blue-700 font-mono">
+                                {liveSubTasks.filter(t => t.status === 'COMPLETED').length}/{liveSubTasks.length} (
+                                {Math.round((liveSubTasks.filter(t => t.status === 'COMPLETED').length / liveSubTasks.length) * 100)}%)
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-gray-500 font-mono">
+                              Tổng giờ ước tính: {liveSubTasks.reduce((s, t) => s + (t.estimatedMinutes || 0), 0)} phút
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="p-4 space-y-3">
+                          {isLoadingSubTasks && liveSubTasks.length === 0 ? (
+                            <div className="py-6 text-center text-gray-400 text-xs">
+                              <Loader2 className="w-5 h-5 animate-spin mx-auto mb-1 text-blue-500" />
+                              Đang tải hạng mục nhiệm vụ...
+                            </div>
+                          ) : liveSubTasks.length > 0 ? (
+                            liveSubTasks.map((task) => {
+                              const isCompleted = task.status === 'COMPLETED';
+                              return (
+                                <div
+                                  key={task.id}
+                                  onClick={() => handleToggleSubTask(task)}
+                                  className={`flex items-start gap-3 p-3.5 rounded-xl cursor-pointer transition-all border ${
+                                    isCompleted
+                                      ? 'bg-emerald-50/30 border-emerald-200'
+                                      : 'bg-white hover:bg-gray-50 border-gray-200'
+                                  }`}
+                                >
+                                  <div
+                                    className={`w-5 h-5 rounded border flex items-center justify-center transition-colors flex-shrink-0 mt-0.5 ${
+                                      isCompleted
+                                        ? 'bg-emerald-600 border-emerald-600 text-white'
+                                        : 'bg-white border-gray-300 hover:border-blue-500'
+                                    }`}
+                                  >
+                                    {isCompleted && <Check className="w-3.5 h-3.5" />}
+                                  </div>
+
+                                  <div className="space-y-0.5 flex-1">
+                                    <div className="flex items-center justify-between">
+                                      <span
+                                        className={`text-sm font-semibold ${
+                                          isCompleted ? 'line-through text-gray-400' : 'text-gray-900'
+                                        }`}
+                                      >
+                                        {task.title}
+                                      </span>
+                                      <span className="text-[11px] font-mono text-gray-500">
+                                        {task.actualMinutes > 0 ? `${task.actualMinutes}m thực tế` : `${task.estimatedMinutes}m dự tính`}
+                                      </span>
+                                    </div>
+                                    {task.description && (
+                                      <p className="text-xs text-gray-500 leading-relaxed">
+                                        {task.description}
+                                      </p>
+                                    )}
+                                    {task.assignedTechName && (
+                                      <span className="inline-block text-[10px] text-blue-700 font-medium bg-blue-50 px-2 py-0.5 rounded mt-1">
+                                        KTV: {task.assignedTechName}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <div className="py-6 text-center space-y-3">
+                              <p className="text-xs text-gray-500">Ticket này chưa có danh mục kiểm thử chi tiết.</p>
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleQuickCreateStandardTasks}
+                                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                  Khởi Tạo 4 Hạng Mục Tiêu Chuẩn (SRS III.3)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setShowSubTasksModal(true)}
+                                  className="px-3 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-bold transition-colors"
+                                >
+                                  Tùy Chỉnh Hạng Mục
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                      </div>
 
-                     <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-                        <div className="px-6 py-4 bg-gray-50/50">
-                          <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                            <Camera className="w-4 h-4 text-gray-500" />
-                            Evidence Upload
+                     {/* EVIDENCE UPLOAD WITH CLIENT-SIDE MEDIA COMPRESSION (SRS V.2) */}
+                      <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
+                        <div className="px-6 py-4 bg-gray-50/50 flex items-center justify-between">
+                          <h3 className="font-semibold text-gray-900 flex items-center gap-2 text-sm">
+                            <Camera className="w-4 h-4 text-blue-600" />
+                            Ảnh Nghiệm Thu Hiện Trường (Evidence Upload)
                           </h3>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-mono font-medium">
+                              SRS V.2: Max 1920px • 80% JPEG
+                            </span>
+                            <span className="text-xs text-gray-500 font-medium">
+                              ({evidencePhotos.length} ảnh)
+                            </span>
+                          </div>
                         </div>
-                        <div className="p-6 grid grid-cols-2 gap-4">
-                           <button className="aspect-square rounded-xl border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all">
-                              <Camera className="w-8 h-8" />
-                              <span className="text-xs font-medium">Add Photo</span>
-                           </button>
-                           <div className="aspect-square rounded-xl bg-gray-100 overflow-hidden relative group">
-                              <div className="absolute inset-0 bg-gradient-to-tr from-gray-800/50 to-transparent text-white flex items-end p-2">
-                                 <span className="text-xs">IMG_20250211.jpg</span>
-                              </div>
-                           </div>
+
+                        <div className="p-6">
+                          <input 
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleFilesSelected}
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                          />
+
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                            {/* Upload Button */}
+                            <button 
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              disabled={isCompressing}
+                              className="aspect-square rounded-xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center gap-2 text-gray-500 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+                            >
+                              {isCompressing ? (
+                                <>
+                                  <Loader2 className="w-7 h-7 text-blue-600 animate-spin" />
+                                  <span className="text-[11px] font-medium text-blue-600">Đang nén ảnh...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <Camera className="w-5 h-5" />
+                                  </div>
+                                  <span className="text-xs font-semibold text-gray-700 group-hover:text-blue-600">Chụp / Thêm ảnh</span>
+                                  <span className="text-[10px] text-gray-400">Tự động nén &lt; 500KB</span>
+                                </>
+                              )}
+                            </button>
+
+                            {/* Evidence Photos Gallery */}
+                            {evidencePhotos.map((photo) => {
+                              const ratio = Math.round((1 - photo.compressedSize / photo.originalSize) * 100);
+                              return (
+                                <div key={photo.id} className="aspect-square rounded-xl bg-gray-900 overflow-hidden relative group shadow-sm border border-gray-200">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img 
+                                    src={photo.dataUrl} 
+                                    alt={photo.name}
+                                    className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                                  />
+                                  <div className="absolute inset-0 bg-gradient-to-t from-gray-950/80 via-transparent to-black/30 p-2 flex flex-col justify-between">
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-black/60 text-green-400 font-semibold backdrop-blur-sm">
+                                        {ratio > 0 ? `-${ratio}%` : 'Nén 80%'}
+                                      </span>
+                                      <div className="flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                          type="button"
+                                          onClick={() => setPreviewPhoto(photo)}
+                                          className="p-1 rounded bg-black/50 text-white hover:bg-blue-600 transition-colors"
+                                          title="Xem kích thước đầy đủ"
+                                        >
+                                          <Maximize2 className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleRemovePhoto(photo.id)}
+                                          className="p-1 rounded bg-black/50 text-white hover:bg-red-600 transition-colors"
+                                          title="Xoá ảnh"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div className="text-white text-[11px] truncate">
+                                      <p className="font-medium truncate drop-shadow-sm">{photo.name}</p>
+                                      <p className="text-[10px] text-gray-300 drop-shadow-sm">
+                                        {formatBytes(photo.originalSize)} → <span className="text-emerald-400 font-semibold">{formatBytes(photo.compressedSize)}</span>
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {evidencePhotos.length === 0 && (
+                            <p className="text-[11px] text-gray-500 mt-3 text-center italic">
+                              Chưa có ảnh nghiệm thu hiện trường nào được tải lên.
+                            </p>
+                          )}
                         </div>
-                     </div>
+                      </div>
 
                      {/* DYNAMIC SCHEMA VALIDATION FORM (SRS III.7) */}
                      <div className="bg-white rounded-xl shadow-sm p-6 space-y-4 border border-blue-100">
@@ -675,6 +1323,18 @@ export default function TechTasksPage() {
                    </>
                  )}
               </>
+            )}
+
+            {/* ================= TAB: MATERIALS & ZERO-COST RMA (SRS III.8) ================= */}
+            {activeTab === 'materials' && selectedJob && (
+              <TicketMaterialsManager
+                ticketId={selectedJob.id}
+                ticketTitle={selectedJob.title}
+                isOnline={isOnline}
+                onMaterialsChange={(totalCost) => {
+                  console.log('Ticket material cost updated:', totalCost);
+                }}
+              />
             )}
 
             {/* ================= SPRINT 3.2: TECH TEAM SPLIT & 24H REVIEW ================= */}
@@ -798,11 +1458,18 @@ export default function TechTasksPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-50">
-                        {teamMembers.map((member) => {
-                          const finalPct = calcFinalSplit(member);
-                          const earning = Math.round((totalPoolVnd * finalPct) / 100);
+                        {teamMembers.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="px-6 py-8 text-center text-xs text-gray-500">
+                              Chưa có thành viên nào được phân bổ cho công việc này.
+                            </td>
+                          </tr>
+                        ) : (
+                          teamMembers.map((member) => {
+                            const finalPct = calcFinalSplit(member);
+                            const earning = Math.round((totalPoolVnd * finalPct) / 100);
 
-                          return (
+                            return (
                             <tr key={member.id} className="hover:bg-gray-50/60 transition-colors">
                               <td className="px-6 py-4 font-medium text-gray-900">
                                 {member.name}
@@ -870,7 +1537,8 @@ export default function TechTasksPage() {
                               </td>
                             </tr>
                           );
-                        })}
+                        })
+                      )}
                       </tbody>
                     </table>
                   </div>
@@ -913,25 +1581,46 @@ export default function TechTasksPage() {
             {activeTab === 'chat' && (
               <div className="flex flex-col h-[600px] bg-white rounded-xl shadow-sm overflow-hidden">
                  <div className="flex-1 p-6 bg-gray-50 space-y-4 overflow-y-auto">
-                    <div className="flex justify-center">
-                       <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full">
-                          Ticket assigned to you.
-                       </span>
-                    </div>
-                    <div className="flex justify-start">
-                       <div className="bg-white rounded-2xl rounded-tl-none p-4 max-w-[80%] shadow-sm">
-                          <p className="text-sm text-gray-700">Please call when you arrive at the gate.</p>
-                          <span className="text-[10px] text-gray-400 mt-1 block">08:59</span>
-                       </div>
-                    </div>
+                    {isLoadingChat && chatMessages.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-2">
+                        <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-xs">Đang tải lịch sử trao đổi...</span>
+                      </div>
+                    ) : chatMessages.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center h-full text-gray-400 gap-1">
+                        <p className="text-sm font-medium text-gray-600">Chưa có tin nhắn trao đổi</p>
+                        <p className="text-xs">Gửi tin nhắn bên dưới để thảo luận trực tiếp với điều phối viên hoặc khách hàng.</p>
+                      </div>
+                    ) : (
+                      chatMessages.map((msg) => (
+                        <div key={msg.id} className="flex justify-start">
+                          <div className="bg-white rounded-2xl rounded-tl-none p-4 max-w-[80%] shadow-sm border border-gray-100">
+                            <p className="text-sm text-gray-800">{msg.content}</p>
+                            {msg.createdAt && (
+                              <span className="text-[10px] text-gray-400 mt-1 block">
+                                {new Date(msg.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
                  </div>
-                 <div className="p-4 bg-white flex items-center gap-3">
+                 <div className="p-4 bg-white border-t border-gray-100 flex items-center gap-3">
                     <input 
                        type="text" 
-                       placeholder="Type a message..."
-                       className="flex-1 bg-gray-50 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                       value={chatInput}
+                       onChange={(e) => setChatInput(e.target.value)}
+                       onKeyDown={(e) => { if (e.key === 'Enter') void handleSendChatMessage(); }}
+                       placeholder={chatRoomId ? "Nhập tin nhắn trao đổi kỹ thuật..." : "Đang kết nối phòng trao đổi..."}
+                       disabled={!chatRoomId || isSendingMessage}
+                       className="flex-1 bg-gray-50 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all disabled:opacity-50"
                     />
-                    <button className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 transition-colors shadow-sm">
+                    <button 
+                      onClick={() => void handleSendChatMessage()}
+                      disabled={!chatRoomId || !chatInput.trim() || isSendingMessage}
+                      className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
+                    >
                        <Send className="w-4 h-4" />
                     </button>
                  </div>
@@ -940,10 +1629,12 @@ export default function TechTasksPage() {
 
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {/* DIGITAL HANDOVER MODAL */}
-      {showHandoverModal && (
+      {showHandoverModal && selectedJob && (
         <DigitalHandoverModal
           jobId={selectedJob.id}
           jobTitle={selectedJob.title}
@@ -955,7 +1646,7 @@ export default function TechTasksPage() {
       )}
 
       {/* START JOB MODAL (ON-JOB DURATION - SRS III.1.A) */}
-      {showStartJobModal && (
+      {showStartJobModal && selectedJob && (
         <StartJobModal
           jobId={selectedJob.id}
           jobTitle={selectedJob.title}
@@ -966,7 +1657,7 @@ export default function TechTasksPage() {
       )}
 
       {/* DISPUTE APPEAL MODAL (SRS III.4) */}
-      {showDisputeModal && disputeMember && (
+      {showDisputeModal && disputeMember && selectedJob && (
         <TechDisputeModal
           jobId={selectedJob.id}
           jobTitle={selectedJob.title}
@@ -974,6 +1665,58 @@ export default function TechTasksPage() {
           currentPct={calcFinalSplit(disputeMember)}
           onClose={() => setShowDisputeModal(false)}
           onSubmitSuccess={handleDisputeSuccess}
+        />
+      )}
+
+      {/* FULL EVIDENCE PHOTO PREVIEW MODAL */}
+      {previewPhoto && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setPreviewPhoto(null)}>
+          <div className="relative max-w-3xl w-full bg-white rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <div>
+                <h4 className="font-semibold text-gray-900 text-sm">{previewPhoto.name}</h4>
+                <p className="text-xs text-gray-500">
+                  {formatBytes(previewPhoto.originalSize)} → {formatBytes(previewPhoto.compressedSize)} (SRS V.2 80% JPEG) • {previewPhoto.timestamp}
+                </p>
+              </div>
+              <button onClick={() => setPreviewPhoto(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 bg-gray-950 flex items-center justify-center max-h-[75vh] overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={previewPhoto.dataUrl} alt={previewPhoto.name} className="max-h-[70vh] object-contain rounded-lg" />
+            </div>
+          </div>
+        </div>
+      )}
+      {/* SLA STOP-THE-CLOCK MODAL (SRS III.7) */}
+      {showSlaPauseModal && selectedJob && (
+        <SlaStopClockModal
+          isOpen={showSlaPauseModal}
+          jobId={selectedJob.id}
+          jobTitle={selectedJob.title}
+          currentAttributes={selectedJob.rawAttributes}
+          onClose={() => setShowSlaPauseModal(false)}
+          onSuccess={handleSlaPauseSuccess}
+        />
+      )}
+      {/* SUB-TASKS MODAL (SRS III.3) */}
+      {showSubTasksModal && selectedJob && (
+        <TicketSubTasksModal
+          isOpen={showSubTasksModal}
+          ticketId={selectedJob.id}
+          ticketTitle={selectedJob.title}
+          onClose={() => setShowSubTasksModal(false)}
+          onTasksUpdated={() => fetchLiveSubTasks(selectedJob.id)}
+        />
+      )}
+      {/* ASSET QR & SERIAL LOOKUP MODAL (SRS III.6) */}
+      {showAssetLookupModal && (
+        <TechAssetLookupModal
+          isOpen={showAssetLookupModal}
+          onClose={() => setShowAssetLookupModal(false)}
+          onSelectAsset={handleAssetSelect}
         />
       )}
     </div>

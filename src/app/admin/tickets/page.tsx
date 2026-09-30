@@ -6,7 +6,7 @@ import { ensureAuthReady } from '@/lib/auth/ensure-auth-ready';
 import { TopHeader } from '@/components/layout';
 import { 
   Search, AlertTriangle, MessageSquare, Clock, FileText, 
-  Lock, RefreshCw, Loader2, UserPlus, DollarSign, Sparkles, CheckCircle, XCircle 
+  Lock, RefreshCw, Loader2, UserPlus, DollarSign, Sparkles, CheckCircle, XCircle, ListTodo 
 } from 'lucide-react';
 import { cn } from '@/utils';
 import { 
@@ -20,6 +20,7 @@ import {
 import SubmitQuotationModal from '@/components/SubmitQuotationModal';
 import AssignTicketModal from '@/components/AssignTicketModal';
 import SmartDispatchModal from '@/components/SmartDispatchModal';
+import TicketSubTasksModal from '@/components/TicketSubTasksModal';
 import { useToast } from '@/components/ui';
 
 interface ChatMessage {
@@ -232,6 +233,7 @@ export default function TicketMonitorPage() {
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showSmartDispatchModal, setShowSmartDispatchModal] = useState(false);
+  const [showSubTasksModal, setShowSubTasksModal] = useState(false);
 
   // Action loading states
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -542,7 +544,7 @@ export default function TicketMonitorPage() {
       }
       fetchTickets();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to update status');
+      toast.addToast(err instanceof Error ? err.message : 'Failed to update status', { type: 'error' });
     } finally {
       setActionLoading(null);
     }
@@ -565,7 +567,7 @@ export default function TicketMonitorPage() {
       }
       fetchTickets();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to approve ticket');
+      toast.addToast(err instanceof Error ? err.message : 'Failed to approve ticket', { type: 'error' });
     } finally {
       setActionLoading(null);
     }
@@ -592,7 +594,7 @@ export default function TicketMonitorPage() {
       }
       fetchTickets();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to reject ticket');
+      toast.addToast(err instanceof Error ? err.message : 'Failed to reject ticket', { type: 'error' });
     } finally {
       setActionLoading(null);
     }
@@ -1217,6 +1219,17 @@ export default function TicketMonitorPage() {
           onSuccess={fetchTickets}
           ticketId={selectedTicket.id}
           ticketTitle={selectedTicket.title}
+        />
+      )}
+
+      {/* Sub-tasks Breakdown Modal (SRS III.3) */}
+      {selectedTicket && (
+        <TicketSubTasksModal
+          isOpen={showSubTasksModal}
+          ticketId={selectedTicket.id}
+          ticketTitle={selectedTicket.title}
+          onClose={() => setShowSubTasksModal(false)}
+          onTasksUpdated={fetchTickets}
         />
       )}
 

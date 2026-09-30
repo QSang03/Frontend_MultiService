@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   MapPin,
@@ -9,7 +10,9 @@ import {
   Calendar,
   Camera,
   X,
+  Loader2,
 } from 'lucide-react';
+import { toast } from '@/components/ui/Toast';
 
 const categories = [
   { id: 'computer', label: 'Sửa máy tính', icon: '💻' },
@@ -51,6 +54,7 @@ const dynamicFields: Record<string, Array<{
 };
 
 export default function CreateTicketB2C() {
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [description, setDescription] = useState('');
@@ -59,6 +63,7 @@ export default function CreateTicketB2C() {
   const [preferredDate, setPreferredDate] = useState('');
   const [dynamicValues, setDynamicValues] = useState<Record<string, string | boolean>>({});
   const [attachments, setAttachments] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
 
   const fields = selectedCategory ? dynamicFields[selectedCategory] || [] : [];
   const basePrice = urgency === 'urgent' ? 750000 : 500000;
@@ -66,6 +71,47 @@ export default function CreateTicketB2C() {
 
   const handleDynamicChange = (key: string, value: string | boolean) => {
     setDynamicValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      const catObj = categories.find((c) => c.id === selectedCategory);
+      const title = `${catObj?.label || 'Yêu cầu dịch vụ'}: ${description.slice(0, 50) || 'Hỗ trợ kỹ thuật'}`;
+      
+      const payload = {
+        title,
+        description,
+        priority: urgency === 'urgent' ? 'critical' : 'medium',
+        category_id: selectedCategory,
+        attributes: JSON.stringify({
+          ...dynamicValues,
+          address,
+          preferredDate,
+          basePrice,
+          surcharge,
+          estimatedTotal: basePrice + surcharge,
+        }),
+      };
+
+      const res = await fetch('/api/sale/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        toast.success('Gửi yêu cầu dịch vụ thành công!');
+        router.push('/customer/b2c/tickets');
+      } else {
+        const data = await res.json();
+        toast.error(data.error || 'Gửi yêu cầu thất bại');
+      }
+    } catch {
+      toast.error('Lỗi kết nối khi gửi yêu cầu');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -326,11 +372,28 @@ export default function CreateTicketB2C() {
           </div>
 
           <div className="flex gap-3 pt-2">
-            <button onClick={() => setStep(2)} className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium">
+            <button 
+              type="button"
+              disabled={submitting}
+              onClick={() => setStep(2)} 
+              className="px-6 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
+            >
               Quay lại
             </button>
-            <button className="flex-1 px-6 py-2.5 rounded-xl bg-blue-500 text-white hover:bg-blue-600 text-sm font-bold">
-              ✅ Gửi yêu cầu
+            <button 
+              type="button"
+              disabled={submitting}
+              onClick={handleSubmit}
+              className="flex-1 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Đang gửi yêu cầu...
+                </>
+              ) : (
+                '✅ Gửi yêu cầu'
+              )}
             </button>
           </div>
         </div>

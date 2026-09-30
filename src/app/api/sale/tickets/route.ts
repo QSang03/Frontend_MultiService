@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { protoCreateTicket, protoListTickets, protoUpdateTicketStatus, protoGuestCreateTicket } from '@/lib/proto/ticket-client';
+import { getSession } from '@/lib/auth/session';
 
 type TicketDto = {
   id: string;
@@ -173,12 +174,18 @@ export async function POST(req: Request) {
   }
 
   // Authenticated flow (logged-in users)
-  if (!customerId) {
+  let resolvedCustomerId = customerId;
+  if (!resolvedCustomerId) {
+    const session = await getSession();
+    resolvedCustomerId = session?.customerId || session?.userId;
+  }
+
+  if (!resolvedCustomerId) {
     return NextResponse.json({ error: 'customer_id and title are required' }, { status: 400 });
   }
 
   const result = await protoCreateTicket({
-    customerId: String(customerId),
+    customerId: String(resolvedCustomerId),
     categoryId: String(categoryId || 'other'),
     serviceId: serviceId ? String(serviceId) : undefined,
     title: String(title),

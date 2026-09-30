@@ -906,4 +906,102 @@ export async function protoSmartAutoAssign(payload: {
   }
 }
 
+export async function protoSubmitTicketRating(payload: {
+  ticketId: string;
+  stars: number;
+  feedback?: string;
+  tags?: string[];
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.SubmitTicketRatingRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        stars: payload.stars,
+        feedback: payload.feedback || undefined,
+        tags: payload.tags || [],
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).submitTicketRating(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Submit ticket rating failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoGetTicketRating(
+  ticketId: string
+): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.GetTicketRatingRequestSchema as unknown as DescMessage, {
+        ticketId,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).getTicketRating(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Get ticket rating failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoStartJob(payload: {
+  ticketId: string;
+  estimatedDurationMinutes: number;
+  notes?: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.StartJobRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        estimatedDurationMinutes: payload.estimatedDurationMinutes,
+        notes: payload.notes || undefined,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).startJob(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Start job failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoUpdateTicketAttributes(payload: {
+  ticketId: string;
+  attributes: string;
+}): Promise<{ success: boolean; response?: unknown; error?: string }> {
+  const mod = await loadTicketModule();
+  if (!mod) return { success: false, error: 'TicketService proto module not available' };
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedTicketClient();
+      const request = create(mod.UpdateTicketAttributesRequestSchema as unknown as DescMessage, {
+        ticketId: payload.ticketId,
+        attributes: payload.attributes,
+      });
+      type RpcMethod = (req: unknown) => Promise<unknown>;
+      return await (client as unknown as Record<string, RpcMethod>).updateTicketAttributes(request as unknown);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Update ticket attributes failed';
+    return { success: false, error: message };
+  }
+}
+
+
+
 

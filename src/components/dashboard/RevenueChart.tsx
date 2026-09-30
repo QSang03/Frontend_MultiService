@@ -20,10 +20,10 @@ export interface RevenueChartItem {
 }
 
 const DEFAULT_DATA: RevenueChartItem[] = [
-  { name: 'Tuần 1', grossRevenue: 12000000, netProfit: 6500000, opexCogs: 5500000 },
-  { name: 'Tuần 2', grossRevenue: 22000000, netProfit: 12000000, opexCogs: 10000000 },
-  { name: 'Tuần 3', grossRevenue: 28000000, netProfit: 15500000, opexCogs: 12500000 },
-  { name: 'Tuần 4', grossRevenue: 35000000, netProfit: 19000000, opexCogs: 16000000 },
+  { name: 'Tuần 1', grossRevenue: 0, netProfit: 0, opexCogs: 0 },
+  { name: 'Tuần 2', grossRevenue: 0, netProfit: 0, opexCogs: 0 },
+  { name: 'Tuần 3', grossRevenue: 0, netProfit: 0, opexCogs: 0 },
+  { name: 'Tuần 4', grossRevenue: 0, netProfit: 0, opexCogs: 0 },
 ];
 
 interface RevenueChartProps {

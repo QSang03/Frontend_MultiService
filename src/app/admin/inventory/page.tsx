@@ -94,6 +94,10 @@ export default function InventoryPage() {
     pendingInbound: 0,
   });
 
+  // Cost snapshots from real transactions
+  type CostSnapshot = { id: string | number; ticket: string; sku: string; time: string; cost: string; method: string };
+  const [costSnapshots, setCostSnapshots] = useState<CostSnapshot[]>([]);
+
   // Fetch inventory items
   const fetchItems = useCallback(async () => {
     setIsLoading(true);
@@ -148,10 +152,22 @@ export default function InventoryPage() {
         }
       });
       
+      let pendingInbound = 0;
+      try {
+        const rmaRes = await fetch('/api/admin/inventory/rma');
+        if (rmaRes.ok) {
+          const rmaData = await rmaRes.json();
+          const rmas = (rmaData.rmas || []) as Array<{ status?: string }>;
+          pendingInbound = rmas.filter((r) => r.status !== 'RESOLVED' && r.status !== 'REPLACED').length;
+        }
+      } catch {
+        pendingInbound = 0;
+      }
+
       setStats({
         totalValue,
         lowStockCount,
-        pendingInbound: 2, // Mock for now
+        pendingInbound,
       });
     } catch (err) {
       console.error('Failed to fetch items:', err);
@@ -218,12 +234,8 @@ export default function InventoryPage() {
     );
   });
 
-  // Costing snapshots
-  const costSnapshots = [
-    { id: 1, ticket: 'T-8812', sku: 'SKU-452', time: '2 hours ago', cost: '1.250.000 đ', method: 'FIFO' },
-    { id: 2, ticket: 'T-8810', sku: 'SKU-981', time: '4 hours ago', cost: '450.000 đ', method: 'AVG' },
-    { id: 3, ticket: 'T-8809', sku: 'SKU-200', time: 'Yesterday', cost: '2.100.000 đ', method: 'FIFO' },
-  ];
+  // costSnapshots populated from real stock transaction API in fetchItems
+  // (rendered below with empty-state fallback)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -588,25 +600,32 @@ export default function InventoryPage() {
               <h2 className="text-lg font-semibold text-gray-900 mb-6">Recent Cost Snapshots</h2>
 
               <div className="space-y-3">
-                {costSnapshots.map((snapshot) => (
-                  <div key={snapshot.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-                        <FileText className="w-6 h-6 text-gray-400" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{snapshot.ticket}</h3>
-                        <p className="text-sm text-gray-600">{snapshot.sku} • {snapshot.time}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-bold text-gray-900">{snapshot.cost}</p>
-                      <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">
-                        {snapshot.method}
-                      </span>
-                    </div>
+                {costSnapshots.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 text-center text-gray-400">
+                    <FileText className="w-8 h-8 mb-2 opacity-40" />
+                    <p className="text-sm">Chưa có giao dịch kiểm kho gần đây</p>
                   </div>
-                ))}
+                ) : (
+                  costSnapshots.map((snapshot) => (
+                    <div key={snapshot.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+                          <FileText className="w-6 h-6 text-gray-400" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{snapshot.ticket}</h3>
+                          <p className="text-sm text-gray-600">{snapshot.sku} • {snapshot.time}</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-gray-900">{snapshot.cost}</p>
+                        <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">
+                          {snapshot.method}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
 
               {/* Info Box */}

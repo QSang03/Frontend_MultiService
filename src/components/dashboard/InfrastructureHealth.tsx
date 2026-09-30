@@ -14,40 +14,10 @@ export interface ServiceHealthItem {
   icon?: LucideIcon;
 }
 
-const DEFAULT_SERVICES: ServiceHealthItem[] = [
-  {
-    id: '1',
-    name: 'API Gateway (Next.js & Connect)',
-    uptime: '99.99%',
-    latency: '45ms',
-    status: 'healthy',
-    icon: Activity,
-  },
-  {
-    id: '2',
-    name: 'PostgreSQL DB (Cluster & RLS)',
-    uptime: '99.98%',
-    latency: '14ms',
-    status: 'healthy',
-    icon: Database,
-  },
-  {
-    id: '3',
-    name: 'Temporal Engine (SLA & Workflows)',
-    uptime: '99.95%',
-    latency: '65ms',
-    status: 'healthy',
-    icon: Workflow,
-  },
-  {
-    id: '4',
-    name: 'Redis Cache & Session Store',
-    uptime: '100%',
-    latency: '3ms',
-    status: 'healthy',
-    icon: Bell,
-  },
-];
+
+const DEFAULT_SERVICES: ServiceHealthItem[] = [];
+
+
 
 const statusConfig = {
   healthy: {
@@ -91,8 +61,13 @@ export default function InfrastructureHealth({ services = DEFAULT_SERVICES }: In
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {services.map((service) => {
-          const config = statusConfig[service.status] || statusConfig.healthy;
+        {services.length === 0 ? (
+          <div className="col-span-2 py-6 text-center text-xs text-gray-500 bg-gray-50/50 rounded-xl border border-dashed border-gray-200">
+            Đang kết nối và đo lường thông số hạ tầng vi dịch vụ...
+          </div>
+        ) : (
+          services.map((service) => {
+            const config = statusConfig[service.status] || statusConfig.healthy;
           const Icon = service.icon || (
             service.name.toLowerCase().includes('db') || service.name.toLowerCase().includes('sql')
               ? Database
@@ -123,7 +98,8 @@ export default function InfrastructureHealth({ services = DEFAULT_SERVICES }: In
               </div>
             </div>
           );
-        })}
+        })
+      )}
       </div>
     </div>
   );

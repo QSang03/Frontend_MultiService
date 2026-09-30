@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { getSessions, revokeSession, revokeOtherSessions, type Session } from '@/app/actions/sessions';
 import { Card } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
+import { toast } from '@/components/ui/Toast';
 
 function formatLastActive(lastActiveAt?: { seconds: string; nanos: number }): string {
   if (!lastActiveAt) return 'Never';
@@ -96,14 +97,15 @@ export function SessionsList() {
           window.location.href = '/login';
           return;
         }
-        alert(result.error || 'Failed to revoke session');
+        toast.error(result.error || 'Thu hồi phiên đăng nhập thất bại');
         return;
       }
 
+      toast.success('Đã thu hồi phiên đăng nhập');
       // Reload sessions after successful revoke
       await loadSessions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to revoke session');
+      toast.error(err instanceof Error ? err.message : 'Thu hồi phiên đăng nhập thất bại');
     } finally {
       setRevoking(null);
     }
@@ -125,14 +127,15 @@ export function SessionsList() {
           window.location.href = '/login';
           return;
         }
-        alert(result.error || 'Failed to revoke other sessions');
+        toast.error(result.error || 'Thu hồi các phiên khác thất bại');
         return;
       }
 
+      toast.success('Đã thu hồi tất cả các phiên đăng nhập khác');
       // Reload sessions after successful revoke
       await loadSessions();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to revoke other sessions');
+      toast.error(err instanceof Error ? err.message : 'Thu hồi các phiên khác thất bại');
     } finally {
       setRevoking(null);
     }

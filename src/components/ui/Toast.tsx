@@ -10,8 +10,13 @@ type Toast = {
   duration?: number;
 };
 
+type ToastType = 'success' | 'error' | 'info';
+
 type ToastContextValue = {
-  addToast: (message: string, opts?: { type?: Toast['type']; duration?: number }) => string;
+  addToast: (
+    arg1: string,
+    arg2?: { type?: ToastType; duration?: number } | ToastType | string
+  ) => string;
   removeToast: (id: string) => void;
 };
 
@@ -23,15 +28,63 @@ export const useToast = () => {
   return ctx;
 };
 
+export const toast = {
+  success: (message: string) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, type: 'success' } }));
+    }
+  },
+  error: (message: string) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, type: 'error' } }));
+    }
+  },
+  info: (message: string) => {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('app-toast', { detail: { message, type: 'info' } }));
+    }
+  },
+};
+
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const addToast = useCallback((message: string, opts?: { type?: Toast['type']; duration?: number }) => {
+  const addToast = useCallback((
+    arg1: string,
+    arg2?: { type?: ToastType; duration?: number } | ToastType | string
+  ) => {
+    let message = arg1;
+    let type: ToastType = 'info';
+    let duration = 3500;
+
+    const isKnownType = (v: unknown): v is ToastType => v === 'success' || v === 'error' || v === 'info';
+
+    if (isKnownType(arg1) && typeof arg2 === 'string') {
+      type = arg1;
+      message = arg2;
+    } else if (typeof arg2 === 'string' && isKnownType(arg2)) {
+      type = arg2;
+    } else if (typeof arg2 === 'object' && arg2 !== null) {
+      if (arg2.type) type = arg2.type;
+      if (arg2.duration) duration = arg2.duration;
+    }
+
     const id = String(Date.now() + Math.random());
-    const toast: Toast = { id, message, type: opts?.type ?? 'info', duration: opts?.duration ?? 3500 };
-    setToasts((s) => [...s, toast]);
+    const toastItem: Toast = { id, message, type, duration };
+    setToasts((s) => [...s, toastItem]);
     return id;
   }, []);
+
+  useEffect(() => {
+    const handleAppToast = (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string; type?: ToastType; duration?: number }>;
+      if (customEvent.detail?.message) {
+        addToast(customEvent.detail.message, customEvent.detail.type || 'info');
+      }
+    };
+    window.addEventListener('app-toast', handleAppToast);
+    return () => window.removeEventListener('app-toast', handleAppToast);
+  }, [addToast]);
 
   const removeToast = useCallback((id: string) => {
     setToasts((s) => s.filter((t) => t.id !== id));

@@ -22,6 +22,12 @@ import {
   AdminDeleteUserResponse,
   AdminListOrganizationsRequestSchema,
   AdminListOrganizationsResponse,
+  AdminUpdateTenantConfigRequestSchema,
+  AdminUpdateTenantConfigResponse,
+  AdminListServiceProviderRequestsRequestSchema,
+  AdminListServiceProviderRequestsResponse,
+  AdminReviewServiceProviderRequestRequestSchema,
+  AdminReviewServiceProviderRequestResponse,
 } from '@buf/nkc_multiservice.bufbuild_es/multiservice/auth/v1/admin_pb.js';
 
 // Safe JSON replacer to handle BigInt values from protobuf (convert to string)
@@ -277,6 +283,85 @@ export async function protoAdminListOrganizations(params?: {
     return { success: true, response };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Admin list organizations failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoAdminUpdateTenantConfig(payload: {
+  orgId: string;
+  domainType?: number;
+  domainValue?: string;
+  maxUsers?: number;
+  maxStorage?: bigint | number;
+  maxTickets?: number;
+  quotasJson?: string;
+  status?: string;
+}): Promise<{ success: boolean; response?: AdminUpdateTenantConfigResponse; error?: string }> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedAdminClient();
+      const request = create(AdminUpdateTenantConfigRequestSchema, {
+        orgId: payload.orgId,
+        domainType: payload.domainType,
+        domainValue: payload.domainValue,
+        maxUsers: payload.maxUsers,
+        maxStorage: payload.maxStorage !== undefined ? BigInt(payload.maxStorage) : undefined,
+        maxTickets: payload.maxTickets,
+        quotasJson: payload.quotasJson,
+        status: payload.status,
+      });
+      return await client.adminUpdateTenantConfig(request);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Admin update tenant config failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoAdminListServiceProviderRequests(params?: {
+  statusFilter?: string;
+  pageSize?: number;
+  pageToken?: string;
+}): Promise<{ success: boolean; response?: AdminListServiceProviderRequestsResponse; error?: string }> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedAdminClient();
+      const request = create(AdminListServiceProviderRequestsRequestSchema, {
+        statusFilter: params?.statusFilter,
+        pageSize: params?.pageSize ?? 50,
+        pageToken: params?.pageToken ?? '',
+      });
+      return await client.adminListServiceProviderRequests(request);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Admin list service provider requests failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function protoAdminReviewServiceProviderRequest(payload: {
+  requestId: string;
+  approved: boolean;
+  adminNotes?: string;
+}): Promise<{ success: boolean; response?: AdminReviewServiceProviderRequestResponse; error?: string }> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedAdminClient();
+      const request = create(AdminReviewServiceProviderRequestRequestSchema, {
+        requestId: payload.requestId,
+        approved: payload.approved,
+        adminNotes: payload.adminNotes,
+      });
+      return await client.adminReviewServiceProviderRequest(request);
+    });
+
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Admin review service provider request failed';
     return { success: false, error: message };
   }
 }

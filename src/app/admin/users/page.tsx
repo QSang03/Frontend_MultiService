@@ -18,7 +18,8 @@ import {
   Download,
   Check,
   Building,
-  Loader2
+  Loader2,
+  CheckCircle,
 } from 'lucide-react';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import { useToast } from '@/components/ui/Toast';
@@ -169,12 +170,19 @@ export default function UserRBACPage() {
 
   const handleSaveRBAC = async () => {
     setIsSavingRBAC(true);
-    // Simulate API call
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      addToast('RBAC Matrix updated successfully', { type: 'success' });
-    } catch {
-      addToast('Failed to save changes', { type: 'error' });
+      const res = await fetch('/api/admin/users/rbac', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'UPDATE_RBAC_MATRIX' }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Cập nhật ma trận phân quyền thất bại');
+      }
+      addToast('Cập nhật ma trận phân quyền RBAC thành công', { type: 'success' });
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Lỗi khi lưu ma trận phân quyền', { type: 'error' });
     } finally {
       setIsSavingRBAC(false);
     }
@@ -697,92 +705,28 @@ export default function UserRBACPage() {
             <div className="bg-white rounded-xl border border-gray-200">
               <div className="p-6 border-b border-gray-100">
                 <h3 className="text-lg font-bold text-gray-900 mb-1">Identity Merge Tool (B2C)</h3>
-                <p className="text-sm text-gray-500">Merge &apos;Guest Accounts&apos; into &apos;Official Accounts&apos; based on phone number matching. This preserves history while upgrading the user.</p>
+                <p className="text-sm text-gray-500">Hợp nhất tài khoản Vãng lai (Guest) vào tài khoản Chính thức (Official) dựa trên số điện thoại trùng khớp.</p>
               </div>
               
-              <div className="p-6">
-                {/* Conflict Detected Badge */}
-                <div className="mb-4 flex items-center gap-2">
-                  <span className="px-3 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded">
-                    CONFLICT DETECTED
-                  </span>
-                  <button className="px-3 py-1 text-xs font-medium text-gray-600 border border-gray-300 rounded hover:bg-gray-50">
-                    Ignore
-                  </button>
+              <div className="p-8 text-center py-16">
+                <div className="w-12 h-12 bg-green-50 border border-green-200 text-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <CheckCircle className="w-6 h-6" />
                 </div>
-
-                <p className="text-sm font-semibold text-gray-900 mb-4">Phone: 0909***123</p>
-
-                {/* Two Profile Cards with merge icon */}
-                <div className="relative mb-6">
-                  <div className="grid grid-cols-2 gap-4">
-                    {/* Guest Profile */}
-                    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                      <p className="text-xs font-semibold text-gray-500 mb-3">GUEST PROFILE</p>
-                      <h4 className="text-base font-bold text-gray-900 mb-1">Nguyen Van A</h4>
-                      <p className="text-xs text-gray-500 mb-2">Last active: Yesterday</p>
-                      <p className="text-xs text-gray-600">Tickets: <span className="font-semibold">1</span></p>
-                    </div>
-
-                    {/* Official Profile */}
-                    <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
-                      <p className="text-xs font-semibold text-blue-600 mb-3">OFFICIAL PROFILE</p>
-                      <h4 className="text-base font-bold text-gray-900 mb-1">Nguyễn Văn An</h4>
-                      <p className="text-xs text-gray-500 mb-2">Registered: Today</p>
-                      <p className="text-xs text-gray-600">Verified: <span className="font-semibold">SMS OTP</span></p>
-                    </div>
-                  </div>
-                  
-                  {/* Merge Icon - positioned absolutely in the center */}
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                    <div className="w-10 h-10 rounded-full bg-white border-2 border-blue-500 flex items-center justify-center shadow-md">
-                      <GitMerge className="w-5 h-5 text-blue-600" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Confirm Button */}
-                <button className="w-full px-6 py-3 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-                  Confirm Merge & Sync History
-                </button>
+                <h4 className="text-base font-bold text-gray-900 mb-1">Không có xung đột danh tính</h4>
+                <p className="text-xs text-gray-500 max-w-sm mx-auto">
+                  Hiện không phát hiện số điện thoại nào trùng lắp giữa tài khoản Khách vãng lai và Thành viên chính thức cần hợp nhất.
+                </p>
               </div>
             </div>
 
             {/* Merge History Log */}
             <div className="bg-white rounded-xl border border-gray-200">
               <div className="p-6 border-b border-gray-100">
-                <h3 className="text-lg font-bold text-gray-900">Merge History Log</h3>
+                <h3 className="text-lg font-bold text-gray-900">Lịch Sử Hợp Nhất (Merge Logs)</h3>
               </div>
               
-              <div className="p-6">
-                <div className="space-y-4">
-                  {/* History Entry 1 */}
-                  <div className="flex items-start gap-3">
-                    <div className="w-2 h-2 rounded-full bg-gray-400 mt-2 flex-shrink-0"></div>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-900">Merged Guest (0912***) into User #882</p>
-                      <p className="text-xs text-gray-500 mt-0.5">10 mins ago • System Auto</p>
-                    </div>
-                  </div>
-
-                  {/* History Entry 2 */}
-                  <div className="flex items-start gap-3">
-                    <div className="w-2 h-2 rounded-full bg-gray-400 mt-2 flex-shrink-0"></div>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-900">Merged Guest (0968***) into User #121</p>
-                      <p className="text-xs text-gray-500 mt-0.5">2 hours ago • Admin</p>
-                    </div>
-                  </div>
-
-                  {/* History Entry 3 */}
-                  <div className="flex items-start gap-3">
-                    <div className="w-2 h-2 rounded-full bg-gray-400 mt-2 flex-shrink-0"></div>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-900">Conflict resolved manually for User #991</p>
-                      <p className="text-xs text-gray-500 mt-0.5">1 day ago • Manager</p>
-                    </div>
-                  </div>
-                </div>
+              <div className="p-8 text-center py-16">
+                <p className="text-sm text-gray-400">Chưa có lịch sử hợp nhất tài khoản nào được ghi nhận.</p>
               </div>
             </div>
           </div>

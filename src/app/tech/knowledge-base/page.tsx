@@ -1,6 +1,6 @@
-﻿'use client';
+'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Search, 
   Plus, 
@@ -9,20 +9,23 @@ import {
   Flame, 
   Clock, 
   ThumbsUp, 
-  X,
-  ChevronRight,
-  Tag,
-  User,
-  AlertCircle,
-  CheckCircle,
-  ArrowLeft,
-  Send,
-  Cpu,
-  Wifi,
-  Monitor,
-  HardDrive,
-  Printer
+  X, 
+  ChevronRight, 
+  Tag, 
+  User, 
+  AlertCircle, 
+  CheckCircle, 
+  ArrowLeft, 
+  Send, 
+  Cpu, 
+  Wifi, 
+  Monitor, 
+  HardDrive, 
+  Printer,
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
+import { useToast } from '@/components/ui';
 
 // --- Types ---
 type Category = 'PRINTERS' | 'NETWORK' | 'SOFTWARE' | 'OS' | 'HARDWARE';
@@ -31,7 +34,7 @@ interface Article {
   id: string;
   title: string;
   excerpt: string;
-  content: string;           // Full troubleshooting steps
+  content: string;
   rootCause?: string;
   deviceRecommendations?: string[];
   firmwareNote?: string;
@@ -44,245 +47,6 @@ interface Article {
   tags?: string[];
   isVerified?: boolean;
 }
-
-// --- Mock Data ---
-const ARTICLES: Article[] = [
-  {
-    id: '1',
-    title: 'Ricoh MP 5054 - Error SC542 Reset Procedure',
-    excerpt: 'Triá»‡u chá»©ng: MÃ¡y hiá»ƒn thá»‹ SC542 (Fusing Temperature Warm-up Error). Cáº§n reset service code vÃ  kiá»ƒm tra nhiá»‡t Ä‘á»™ fuser.',
-    content: `## Triá»‡u chá»©ng
-MÃ¡y in hiá»ƒn thá»‹ lá»—i **SC542** (Fusing Temperature Warm-up Error). MÃ¡y khÃ´ng thá»ƒ khá»Ÿi Ä‘á»™ng bÃ¬nh thÆ°á»ng.
-
-## NguyÃªn nhÃ¢n
-Thermistor cá»§a fuser unit bá»‹ há»ng hoáº·c káº¿t ná»‘i lá»ng láº»o, khiáº¿n mÃ¡y khÃ´ng thá»ƒ Ä‘á»c nhiá»‡t Ä‘á»™ gia nhiá»‡t chÃ­nh xÃ¡c.
-
-## CÃ¡c bÆ°á»›c xá»­ lÃ½
-
-### BÆ°á»›c 1: Reset SC code
-1. Táº¯t mÃ¡y hoÃ n toÃ n (cÃ´ng táº¯c chÃ­nh).
-2. Giá»¯ **[0]** + **[#]** trÃªn bÃ n phÃ­m Ä‘á»“ng thá»i.
-3. Trong khi giá»¯, báº­t cÃ´ng táº¯c nguá»“n â€” mÃ¡y sáº½ vÃ o **Service Mode**.
-4. Nháº­p mÃ£: \`SP5-810-001\` â†’ Chá»n **Execute**.
-5. Nháº­p tiáº¿p: \`SP5-810-002\` â†’ Chá»n **Execute**.
-6. Táº¯t nguá»“n vÃ  khá»Ÿi Ä‘á»™ng láº¡i bÃ¬nh thÆ°á»ng.
-
-### BÆ°á»›c 2: Kiá»ƒm tra Fuser Unit
-- ThÃ¡o fuser unit, kiá»ƒm tra thermistor báº±ng Ä‘á»“ng há»“ Ä‘o Ä‘iá»‡n trá»Ÿ (~5â€“10 kÎ© á»Ÿ nhiá»‡t Ä‘á»™ phÃ²ng).
-- Náº¿u há»Ÿ máº¡ch hoáº·c giÃ¡ trá»‹ báº¥t thÆ°á»ng â†’ **Thay má»›i fuser unit**.
-
-### BÆ°á»›c 3: Kiá»ƒm tra sau reset
-- Cháº¡y test print 10 tá» liÃªn tiáº¿p.
-- VÃ o \`SP5-109\` Ä‘á»ƒ xem nhiá»‡t Ä‘á»™ fuser thá»±c táº¿ (má»¥c tiÃªu: 175â€“180Â°C).`,
-    rootCause: 'Thermistor fuser unit lá»—i hoáº·c káº¿t ná»‘i PCU board bá»‹ lá»ng.',
-    deviceRecommendations: ['Ricoh MP 4054', 'Ricoh MP 5054', 'Ricoh MP 6054'],
-    firmwareNote: 'NÃªn nÃ¢ng firmware lÃªn báº£n 1.13.0 trá»Ÿ lÃªn Ä‘á»ƒ trÃ¡nh false-positive SC542.',
-    category: 'PRINTERS',
-    author: 'Mike Ross',
-    readTime: '2 min',
-    views: 1240,
-    likes: 45,
-    date: '2 days ago',
-    tags: ['SC542', 'Fuser', 'Error Code', 'Ricoh'],
-    isVerified: true
-  },
-  {
-    id: '2',
-    title: 'Windows Server 2019 - Boot Loop Troubleshooting',
-    excerpt: 'Sá»­a lá»—i boot loop sau khi cáº­p nháº­t Windows. Cáº§n truy cáº­p Safe Mode Ä‘á»ƒ rollback update.',
-    content: `## Triá»‡u chá»©ng
-Server khá»Ÿi Ä‘á»™ng láº¡i liÃªn tá»¥c sau khi cÃ i Windows Update, khÃ´ng vÃ o Ä‘Æ°á»£c desktop.
-
-## CÃ¡c bÆ°á»›c xá»­ lÃ½
-
-### BÆ°á»›c 1: VÃ o Safe Mode
-1. Khi mÃ¡y Ä‘ang restart, nháº¥n **F8** nhiá»u láº§n (hoáº·c giá»¯ **Shift + F8** trÃªn UEFI).
-2. Chá»n **Safe Mode with Networking**.
-
-### BÆ°á»›c 2: XÃ¡c Ä‘á»‹nh Update gÃ¢y lá»—i
-\`\`\`powershell
-Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 10
-\`\`\`
-
-### BÆ°á»›c 3: Rollback Update
-\`\`\`powershell
-wusa /uninstall /kb:XXXXXXX /quiet /norestart
-\`\`\`
-Thay \`XXXXXXX\` báº±ng KB number cá»§a update gáº§n nháº¥t.
-
-### BÆ°á»›c 4: Náº¿u váº«n khÃ´ng vÃ o Ä‘Æ°á»£c
-Sá»­ dá»¥ng Recovery Console tá»« USB bootable:
-\`\`\`
-bootrec /fixmbr
-bootrec /fixboot
-bootrec /rebuildbcd
-\`\`\``,
-    rootCause: 'Windows Update KB incompatible vá»›i driver RAID controller hoáº·c AV software.',
-    deviceRecommendations: ['Dell PowerEdge', 'HP ProLiant', 'Lenovo ThinkSystem'],
-    category: 'OS',
-    author: 'Sarah Connor',
-    readTime: '5 min',
-    views: 890,
-    likes: 120,
-    date: '1 week ago',
-    tags: ['Boot Loop', 'Windows Update', 'Safe Mode', 'Server'],
-    isVerified: true
-  },
-  {
-    id: '3',
-    title: 'Cabling Standard T568B Diagram & Pinout',
-    excerpt: 'SÆ¡ Ä‘á»“ báº¥m dÃ¢y máº¡ng chuáº©n T568B. White-Orange, Orange, White-Green, Blue...',
-    content: `## Chuáº©n T568B - Thá»© tá»± báº¥m dÃ¢y
-
-| Pin | MÃ u dÃ¢y | Chá»©c nÄƒng |
-|-----|---------|-----------|
-| 1 | Tráº¯ng-Cam | TX+ |
-| 2 | Cam | TX- |
-| 3 | Tráº¯ng-Xanh lÃ¡ | RX+ |
-| 4 | Xanh dÆ°Æ¡ng | Bi-Di+ |
-| 5 | Tráº¯ng-Xanh dÆ°Æ¡ng | Bi-Di- |
-| 6 | Xanh lÃ¡ | RX- |
-| 7 | Tráº¯ng-NÃ¢u | Bi-Di+ |
-| 8 | NÃ¢u | Bi-Di- |
-
-## LÆ°u Ã½ quan trá»ng
-- **Straight-through cable**: Cáº£ 2 Ä‘áº§u báº¥m T568B â†’ ná»‘i Switch/Router vá»›i PC.
-- **Crossover cable**: 1 Ä‘áº§u T568A, 1 Ä‘áº§u T568B â†’ ná»‘i Switch vá»›i Switch.
-- Hiá»‡n táº¡i switch hiá»‡n Ä‘áº¡i Ä‘Ã£ há»— trá»£ **Auto-MDI/MDIX**, crossover khÃ´ng cÃ²n cáº§n thiáº¿t.
-
-## Kiá»ƒm tra sau báº¥m
-DÃ¹ng cable tester Ä‘á»ƒ verify continuity. Káº¿t quáº£ Ä‘Ãºng: LED 1-2-3-4-5-6-7-8 sÃ¡ng theo thá»© tá»±.`,
-    category: 'NETWORK',
-    author: 'Infra Team',
-    readTime: '1 min',
-    views: 2100,
-    likes: 310,
-    date: '3 months ago',
-    tags: ['T568B', 'Cabling', 'RJ45', 'Network'],
-    isVerified: true
-  },
-  {
-    id: '4',
-    title: 'Outlook 365 - "Trying to connect" loop fix',
-    excerpt: 'Táº¡o profile má»›i qua Control Panel > Mail. Kiá»ƒm tra Autodiscover DNS records.',
-    content: `## Triá»‡u chá»©ng
-Outlook 365 hiá»ƒn thá»‹ "Trying to connect..." hoáº·c "Disconnected" liÃªn tá»¥c dÃ¹ internet hoáº¡t Ä‘á»™ng bÃ¬nh thÆ°á»ng.
-
-## CÃ¡c bÆ°á»›c xá»­ lÃ½
-
-### BÆ°á»›c 1: XÃ³a Credential cÅ©
-1. VÃ o **Control Panel â†’ Credential Manager**.
-2. XÃ³a táº¥t cáº£ entry liÃªn quan Ä‘áº¿n **Office 365** / **MicrosoftOffice**.
-3. Khá»Ÿi Ä‘á»™ng láº¡i Outlook.
-
-### BÆ°á»›c 2: Táº¡o Profile má»›i
-1. **Control Panel â†’ Mail â†’ Show Profiles â†’ Add**.
-2. Äáº·t tÃªn profile má»›i, thÃªm láº¡i account.
-3. Chá»n "Always use this profile" cho profile má»›i.
-
-### BÆ°á»›c 3: Kiá»ƒm tra Autodiscover DNS
-\`\`\`
-nslookup autodiscover.yourdomain.com
-\`\`\`
-Káº¿t quáº£ pháº£i trá» vá» Office 365 endpoint: \`autodiscover.outlook.com\`.
-
-### BÆ°á»›c 4: Registry fix (náº¿u váº«n lá»—i)
-\`\`\`powershell
-Set-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Office\\16.0\\Outlook\\AutoDiscover" -Name "ExcludeLastKnownGoodURL" -Value 1
-\`\`\``,
-    rootCause: 'Credential cache há»ng hoáº·c Autodiscover DNS record chá»‰ vá» endpoint sai.',
-    deviceRecommendations: ['Office 365 E3/E5', 'Exchange Online'],
-    category: 'SOFTWARE',
-    author: 'Alex Tech',
-    readTime: '3 min',
-    views: 540,
-    likes: 22,
-    date: 'Yesterday',
-    tags: ['Outlook', 'Office 365', 'Autodiscover', 'Email'],
-    isVerified: false
-  },
-  {
-    id: '5',
-    title: 'Kyocera TASKalfa - Drum Unit Replacement',
-    excerpt: 'Má»Ÿ náº¯p trÆ°á»›c, má»Ÿ khÃ³a cáº§n cyan. KÃ©o nháº¹ drum unit ra, trÃ¡nh Ã¡nh sÃ¡ng trá»±c tiáº¿p.',
-    content: `## Khi nÃ o cáº§n thay Drum Unit?
-- Äáº¿m trang Ä‘áº¡t giá»›i háº¡n (kiá»ƒm tra táº¡i SP Mode â†’ Drum Counter).
-- Báº£n in xuáº¥t hiá»‡n sá»c dá»c, má» khÃ´ng Ä‘á»u.
-
-## Quy trÃ¬nh thay tháº¿
-
-### BÆ°á»›c 1: Chuáº©n bá»‹
-- Táº¯t mÃ¡y vÃ  Ä‘á»ƒ nguá»™i 15 phÃºt.
-- DÃ¹ng gÄƒng tay Ä‘á»ƒ trÃ¡nh Ä‘á»ƒ láº¡i dáº¥u vÃ¢n tay trÃªn drum.
-
-### BÆ°á»›c 2: ThÃ¡o Drum cÅ©
-1. Má»Ÿ **náº¯p trÆ°á»›c (Front Cover)**.
-2. KÃ©o nháº¹ **Handle mÃ u xanh** cá»§a drum unit cáº§n thay.
-3. KÃ©o tháº³ng ra ngoÃ i â€” **khÃ´ng nghiÃªng**.
-4. Äáº·t vÃ o tÃºi Ä‘en chuyÃªn dá»¥ng, trÃ¡nh Ã¡nh sÃ¡ng.
-
-### BÆ°á»›c 3: Láº¯p Drum má»›i
-1. Má»Ÿ há»™p drum má»›i, giá»¯ nguyÃªn táº¥m báº£o vá»‡ Ä‘áº¿n khi láº¯p vÃ o mÃ¡y.
-2. TrÆ°á»£t drum vÃ o Ä‘Ãºng rÃ£nh cho Ä‘áº¿n khi nghe tiáº¿ng **click**.
-3. ÄÃ³ng náº¯p trÆ°á»›c.
-
-### BÆ°á»›c 4: Reset Drum Counter
-1. VÃ o **Service Mode** â†’ \`Maintenance â†’ Drum Counter â†’ Reset\`.
-2. XÃ¡c nháº­n reset.`,
-    rootCause: 'Drum unit háº¿t tuá»•i thá» (thÆ°á»ng 100,000â€“200,000 trang tÃ¹y model).',
-    deviceRecommendations: ['Kyocera TASKalfa 3252ci', 'Kyocera TASKalfa 4002i', 'Kyocera TASKalfa 5002i'],
-    firmwareNote: 'Kiá»ƒm tra firmware phiÃªn báº£n â‰¥ 3.0 Ä‘á»ƒ há»— trá»£ auto drum counter tracking.',
-    category: 'PRINTERS',
-    author: 'John Doe',
-    readTime: '8 min',
-    views: 320,
-    likes: 15,
-    date: '5 days ago',
-    tags: ['Drum Unit', 'Kyocera', 'Replacement', 'Maintenance'],
-    isVerified: true
-  },
-  {
-    id: '6',
-    title: 'VPN Client - Error 619 Resolution',
-    excerpt: 'Kiá»ƒm tra cÃ i Ä‘áº·t firewall cho phÃ©p GRE protocol. XÃ¡c minh authentication settings.',
-    content: `## Triá»‡u chá»©ng
-VPN client bÃ¡o lá»—i **Error 619: A connection to the remote computer could not be established** khi káº¿t ná»‘i PPTP/L2TP.
-
-## NguyÃªn nhÃ¢n phá»• biáº¿n
-1. Firewall cháº·n **GRE Protocol (IP Protocol 47)**.
-2. Router khÃ´ng há»— trá»£ **VPN Passthrough**.
-3. Sai thÃ´ng tin xÃ¡c thá»±c (username/password).
-
-## CÃ¡c bÆ°á»›c xá»­ lÃ½
-
-### Cho PPTP VPN
-1. VÃ o **Router Admin â†’ Firewall â†’ VPN Passthrough**.
-2. Báº­t **PPTP Passthrough** vÃ  **L2TP Passthrough**.
-3. Má»Ÿ port **1723 TCP** vÃ  cho phÃ©p **GRE (Protocol 47)**.
-
-### Cho Windows Firewall
-\`\`\`powershell
-netsh advfirewall firewall add rule name="GRE Protocol" protocol=47 dir=in action=allow
-netsh advfirewall firewall add rule name="PPTP" protocol=TCP localport=1723 dir=in action=allow
-\`\`\`
-
-### Kiá»ƒm tra Registry (Windows 10/11)
-\`\`\`
-HKLM\\System\\CurrentControlSet\\Services\\RasMan\\Parameters
-â†’ ProhibitIpSec = 1 (náº¿u dÃ¹ng L2TP khÃ´ng cÃ³ certificate)
-\`\`\``,
-    rootCause: 'Firewall hoáº·c router cháº·n GRE protocol cáº§n thiáº¿t cho PPTP tunnel.',
-    deviceRecommendations: ['Cisco RV series', 'Mikrotik RouterOS', 'Fortinet FortiGate'],
-    category: 'NETWORK',
-    author: 'Mike Ross',
-    readTime: '4 min',
-    views: 1100,
-    likes: 89,
-    date: '2 weeks ago',
-    tags: ['VPN', 'Error 619', 'PPTP', 'Firewall', 'GRE'],
-    isVerified: true
-  }
-];
 
 const FILTERS = ['All', 'Printers', 'Network', 'Software', 'OS', 'Hardware'];
 
@@ -304,215 +68,118 @@ interface ArticleDetailModalProps {
 }
 
 const ArticleDetailModal = ({ article, onClose, onLike }: ArticleDetailModalProps) => {
-  const isOpen = article !== null;
-
-  // Simple markdown renderer
-  const renderContent = (md: string) => {
-    const lines = md.split('\n');
-    const elements: React.ReactNode[] = [];
-    let key = 0;
-    let inTable = false;
-    const tableRows: string[][] = [];
-
-    const flushTable = () => {
-      if (tableRows.length === 0) return;
-      const header = tableRows[0];
-      const rows = tableRows.slice(2);
-      elements.push(
-        <div key={key++} className="overflow-x-auto my-4">
-          <table className="min-w-full text-sm border-collapse">
-            <thead>
-              <tr className="bg-slate-100">
-                {header.map((cell, i) => <th key={i} className="px-3 py-2 text-left font-semibold border border-slate-200 text-slate-700">{cell.trim()}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, ri) => (
-                <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
-                  {row.map((cell, ci) => <td key={ci} className="px-3 py-2 border border-slate-200 text-slate-600">{cell.trim()}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-      tableRows.length = 0;
-      inTable = false;
-    };
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.startsWith('|')) {
-        inTable = true;
-        tableRows.push(line.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1));
-        continue;
-      }
-      if (inTable) flushTable();
-      if (line.startsWith('## ')) {
-        elements.push(<h2 key={key++} className="text-lg font-bold text-slate-900 mt-6 mb-2 pb-1 border-b border-slate-100">{line.slice(3)}</h2>);
-      } else if (line.startsWith('### ')) {
-        elements.push(<h3 key={key++} className="text-base font-semibold text-slate-800 mt-4 mb-1">{line.slice(4)}</h3>);
-      } else if (line.startsWith('```')) {
-        const codeLines: string[] = [];
-        i++;
-        while (i < lines.length && !lines[i].startsWith('```')) {
-          codeLines.push(lines[i]);
-          i++;
-        }
-        elements.push(
-          <pre key={key++} className="bg-slate-900 text-green-400 rounded-xl p-4 text-xs font-mono overflow-x-auto my-3 leading-relaxed">
-            {codeLines.join('\n')}
-          </pre>
-        );
-      } else if (line.match(/^\d+\./)) {
-        elements.push(<div key={key++} className="flex gap-2 mb-1"><span className="text-blue-600 font-bold text-sm min-w-[1.25rem]">{line.match(/^(\d+)\./)?.[1]}.</span><span className="text-sm text-slate-600">{line.replace(/^\d+\.\s*/, '')}</span></div>);
-      } else if (line.startsWith('- ')) {
-        elements.push(<div key={key++} className="flex gap-2 mb-1"><span className="text-slate-400 mt-1">â€¢</span><span className="text-sm text-slate-600">{line.slice(2)}</span></div>);
-      } else if (line.trim() !== '') {
-        // Handle bold inline
-        const parts = line.split(/(\*\*[^*]+\*\*)/g);
-        elements.push(
-          <p key={key++} className="text-sm text-slate-600 mb-2 leading-relaxed">
-            {parts.map((p, i) => p.startsWith('**') ? <strong key={i} className="font-semibold text-slate-800">{p.slice(2, -2)}</strong> : p)}
-          </p>
-        );
-      } else {
-        elements.push(<div key={key++} className="h-2" />);
-      }
-    }
-    if (inTable) flushTable();
-    return elements;
-  };
+  if (!article) return null;
 
   return (
-    <div
-      className={`fixed inset-0 z-50 flex items-start justify-end transition-all duration-300 ${
-        isOpen ? 'visible' : 'invisible'
-      }`}
-    >
-      <div
-        className={`absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0'}`}
-        onClick={onClose}
-      />
-      <div
-        className={`relative bg-white h-full w-full max-w-2xl shadow-2xl flex flex-col transition-all duration-300 ${
-          isOpen ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'
-        }`}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100 bg-white sticky top-0 z-10">
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-500">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-blue-600 uppercase tracking-wider">{article?.category}</p>
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-slate-50">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold px-2.5 py-1 rounded bg-blue-100 text-blue-700 uppercase tracking-wide">
+              {article.category}
+            </span>
+            {article.isVerified && (
+              <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                <CheckCircle className="w-3.5 h-3.5" /> Đã kiểm duyệt
+              </span>
+            )}
           </div>
-          {article?.isVerified && (
-            <div className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full text-xs font-bold">
-              <CheckCircle className="w-3.5 h-3.5" />
-              Verified
-            </div>
-          )}
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg transition-colors text-slate-500">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-200/50 transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-6">
-            {/* Title */}
-            <h1 className="text-2xl font-bold text-slate-900 mb-4 leading-snug">{article?.title}</h1>
+        {/* Scrollable Body */}
+        <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold text-gray-900 leading-tight mb-3">
+              {article.title}
+            </h1>
+            <div className="flex flex-wrap items-center gap-4 text-xs text-gray-400 pb-4 border-b border-gray-100">
+              <span className="flex items-center gap-1.5 font-medium text-gray-700">
+                <User className="w-3.5 h-3.5 text-gray-400" /> {article.author}
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" /> {article.readTime}
+              </span>
+              <span className="flex items-center gap-1">
+                <Eye className="w-3.5 h-3.5" /> {article.views} lượt xem
+              </span>
+              <span>{article.date}</span>
+            </div>
+          </div>
 
-            {/* Meta */}
-            <div className="flex flex-wrap items-center gap-4 mb-6 pb-6 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-xs font-bold">
-                  {article?.author.charAt(0)}
-                </div>
-                <span className="text-sm font-medium text-slate-700">{article?.author}</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-slate-400 text-xs font-medium">
-                <Clock className="w-3.5 h-3.5" />
-                {article?.readTime} read
-              </div>
-              <div className="flex items-center gap-1.5 text-slate-400 text-xs font-medium">
-                <Eye className="w-3.5 h-3.5" />
-                {article?.views.toLocaleString()} views
-              </div>
-              <div className="flex items-center gap-1.5 text-slate-400 text-xs font-medium">
-                <User className="w-3.5 h-3.5" />
-                {article?.date}
+          {/* Root cause callout */}
+          {article.rootCause && (
+            <div className="bg-amber-50 border border-amber-200/60 rounded-xl p-4 flex gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-1">Nguyên nhân cốt lõi (Root Cause)</h4>
+                <p className="text-sm text-amber-800 leading-relaxed">{article.rootCause}</p>
               </div>
             </div>
+          )}
 
-            {/* Tags */}
-            {article?.tags && article.tags.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-6">
-                {article.tags.map(tag => (
-                  <span key={tag} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full">
-                    <Tag className="w-3 h-3" />
-                    {tag}
+          {/* Markdown Content */}
+          <div className="prose prose-slate max-w-none text-sm leading-relaxed space-y-4">
+            {article.content.split('\n\n').map((block, idx) => {
+              if (block.startsWith('## ')) {
+                return <h2 key={idx} className="text-base font-bold text-gray-900 mt-6 mb-2">{block.replace('## ', '')}</h2>;
+              }
+              if (block.startsWith('### ')) {
+                return <h3 key={idx} className="text-sm font-bold text-gray-800 mt-4 mb-1">{block.replace('### ', '')}</h3>;
+              }
+              if (block.startsWith('```')) {
+                const codeLines = block.replace(/```[a-z]*\n?/g, '').trim();
+                return (
+                  <pre key={idx} className="bg-slate-900 text-slate-100 p-4 rounded-xl text-xs overflow-x-auto font-mono">
+                    <code>{codeLines}</code>
+                  </pre>
+                );
+              }
+              return <p key={idx} className="text-gray-700 whitespace-pre-line">{block}</p>;
+            })}
+          </div>
+
+          {/* Recommendations */}
+          {article.deviceRecommendations && article.deviceRecommendations.length > 0 && (
+            <div className="bg-blue-50/60 border border-blue-100 rounded-xl p-4">
+              <h4 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Thiết bị áp dụng</h4>
+              <div className="flex flex-wrap gap-2">
+                {article.deviceRecommendations.map((d, i) => (
+                  <span key={i} className="text-xs px-2.5 py-1 bg-white border border-blue-200 rounded-lg text-blue-800 font-medium">
+                    {d}
                   </span>
                 ))}
               </div>
-            )}
-
-            {/* Article Body */}
-            <div className="prose-custom">
-              {article && renderContent(article.content)}
             </div>
+          )}
 
-            {/* Root Cause */}
-            {article?.rootCause && (
-              <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex gap-3">
-                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-xs font-bold text-amber-700 mb-1">NguyÃªn nhÃ¢n gá»‘c rá»…</p>
-                  <p className="text-sm text-amber-800">{article.rootCause}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Device Recommendations */}
-            {article?.deviceRecommendations && article.deviceRecommendations.length > 0 && (
-              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                <p className="text-xs font-bold text-blue-700 mb-2">Ãp dá»¥ng cho thiáº¿t bá»‹</p>
-                <div className="flex flex-wrap gap-2">
-                  {article.deviceRecommendations.map(device => (
-                    <span key={device} className="text-xs font-medium px-2.5 py-1 bg-white border border-blue-200 text-blue-700 rounded-full">
-                      {device}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Firmware Note */}
-            {article?.firmwareNote && (
-              <div className="mt-4 p-4 bg-purple-50 border border-purple-200 rounded-xl">
-                <p className="text-xs font-bold text-purple-700 mb-1">LÆ°u Ã½ Firmware</p>
-                <p className="text-sm text-purple-800">{article.firmwareNote}</p>
-              </div>
-            )}
-
-            {/* Bottom spacing */}
-            <div className="h-8" />
-          </div>
+          {/* Tags */}
+          {article.tags && article.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-2">
+              {article.tags.map(t => (
+                <span key={t} className="text-xs px-2.5 py-1 bg-gray-100 text-gray-600 rounded-md font-medium">
+                  #{t}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Footer Actions */}
-        <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-between">
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
           <button
-            onClick={() => article && onLike(article.id)}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded-lg text-sm font-medium transition-all"
+            onClick={() => onLike(article.id)}
+            className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-blue-50 hover:text-blue-600 text-gray-700 border border-gray-200 rounded-xl text-sm font-medium transition-colors shadow-sm"
           >
             <ThumbsUp className="w-4 h-4" />
-            Há»¯u Ã­ch ({article?.likes})
+            Hữu ích ({article.likes})
           </button>
-          <div className="flex items-center gap-2 text-slate-400 text-xs">
+          <div className="flex items-center gap-2 text-gray-400 text-xs">
             <CheckCircle className="w-4 h-4 text-emerald-500" />
-            <span>ÄÆ°á»£c kiá»ƒm duyá»‡t bá»Ÿi ká»¹ thuáº­t viÃªn cáº¥p cao</span>
+            <span>Xác thực bởi Kỹ thuật viên hệ thống</span>
           </div>
         </div>
       </div>
@@ -526,150 +193,140 @@ const ArticleDetailModal = ({ article, onClose, onLike }: ArticleDetailModalProp
 interface ShareKnowledgeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (article: Omit<Article, 'id' | 'views' | 'likes' | 'date' | 'isVerified'>) => void;
+  onSuccess: (newArticle: Article) => void;
 }
 
-const ShareKnowledgeModal = ({ isOpen, onClose, onSubmit }: ShareKnowledgeModalProps) => {
+const ShareKnowledgeModal = ({ isOpen, onClose, onSuccess }: ShareKnowledgeModalProps) => {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<Category>('PRINTERS');
   const [content, setContent] = useState('');
+  const [rootCause, setRootCause] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const { addToast } = useToast();
 
-  const handleSubmit = () => {
-    if (!title.trim() || !content.trim()) return;
+  if (!isOpen) return null;
+
+  const handleSubmit = async () => {
+    if (!title.trim() || !content.trim()) {
+      addToast('error', 'Vui lòng nhập tiêu đề và nội dung hướng dẫn');
+      return;
+    }
     setIsSubmitting(true);
-    setTimeout(() => {
-      onSubmit({
-        title,
-        excerpt: content.slice(0, 120) + '...',
-        content,
-        category,
-        author: 'Báº¡n (chá» duyá»‡t)',
-        readTime: `${Math.max(1, Math.ceil(content.split(' ').length / 200))} min`,
-        tags: tagsInput.split(',').map(t => t.trim()).filter(Boolean),
+    try {
+      const res = await fetch('/api/tech/knowledge-base', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title.trim(),
+          category,
+          content: content.trim(),
+          rootCause: rootCause.trim() || undefined,
+          tags: tagsInput.split(',').map(t => t.trim()).filter(Boolean),
+        }),
       });
-      setIsSubmitting(false);
-      setSubmitted(true);
-      setTimeout(() => {
-        setSubmitted(false);
-        setTitle(''); setContent(''); setTagsInput('');
+
+      if (!res.ok) {
+        throw new Error('Gửi bài viết thất bại');
+      }
+
+      const json = await res.json();
+      if (json.data) {
+        addToast('success', 'Đã thêm giải pháp thành công vào Knowledge Base');
+        onSuccess(json.data);
         onClose();
-      }, 1800);
-    }, 900);
+        setTitle('');
+        setContent('');
+        setRootCause('');
+        setTagsInput('');
+      }
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : 'Lỗi khi gửi bài viết');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div
-      className={`fixed inset-0 z-50 flex items-center justify-center p-4 transition-all duration-300 ${
-        isOpen ? 'visible opacity-100' : 'invisible opacity-0'
-      }`}
-    >
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
-        onClick={onClose}
-      />
-      <div
-        className={`relative bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden transition-all duration-300 delay-75 ${
-          isOpen ? 'scale-100 opacity-100 translate-y-0' : 'scale-95 opacity-0 translate-y-4'
-        }`}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden">
         <div className="flex justify-between items-center p-6 border-b border-gray-100">
-          <h3 className="text-lg font-bold text-gray-900">ÄÃ³ng gÃ³p kiáº¿n thá»©c</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-500 transition-colors">
+          <h3 className="text-lg font-bold text-gray-900">Đóng góp kinh nghiệm &amp; Giải pháp kỹ thuật</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {submitted ? (
-          <div className="p-12 flex flex-col items-center justify-center gap-4">
-            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center">
-              <CheckCircle className="w-8 h-8 text-emerald-600" />
-            </div>
-            <p className="text-lg font-bold text-gray-900">Gá»­i thÃ nh cÃ´ng!</p>
-            <p className="text-sm text-gray-500 text-center">BÃ i viáº¿t cá»§a báº¡n Ä‘ang chá» kiá»ƒm duyá»‡t vÃ  sáº½ xuáº¥t hiá»‡n trong danh sÃ¡ch.</p>
+        <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
+          <div className="space-y-1.5">
+            <label className="text-sm font-bold text-gray-700">Tiêu đề hướng dẫn / Mã lỗi *</label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="VD: HP LaserJet M404dn - Khắc phục lỗi kẹt giấy Error 13.00.00"
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
           </div>
-        ) : (
-          <>
-            <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-              <div className="space-y-1.5">
-                <label className="text-sm font-bold text-gray-700">TiÃªu Ä‘á» bÃ i viáº¿t *</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={e => setTitle(e.target.value)}
-                  placeholder="VD: Ricoh MP 5054 - CÃ¡ch reset SC542"
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                />
-              </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-bold text-gray-700">Danh má»¥c *</label>
-                  <select
-                    value={category}
-                    onChange={e => setCategory(e.target.value as Category)}
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all appearance-none cursor-pointer"
-                  >
-                    <option value="PRINTERS">MÃ¡y in</option>
-                    <option value="NETWORK">Network</option>
-                    <option value="SOFTWARE">Software</option>
-                    <option value="OS">OS</option>
-                    <option value="HARDWARE">Hardware</option>
-                  </select>
-                </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-bold text-gray-700">Danh mục thiết bị *</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value as Category)}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="PRINTERS">Máy in &amp; Photocopy (PRINTERS)</option>
+              <option value="NETWORK">Mạng, Router &amp; Switch (NETWORK)</option>
+              <option value="HARDWARE">Phần cứng máy tính, Server (HARDWARE)</option>
+              <option value="OS">Hệ điều hành Windows, Linux (OS)</option>
+              <option value="SOFTWARE">Phần mềm văn phòng &amp; Ứng dụng (SOFTWARE)</option>
+            </select>
+          </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-sm font-bold text-gray-700">Tags (cÃ¡ch nhau dáº¥u pháº©y)</label>
-                  <input
-                    type="text"
-                    value={tagsInput}
-                    onChange={e => setTagsInput(e.target.value)}
-                    placeholder="VD: Ricoh, SC542, Fuser"
-                    className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  />
-                </div>
-              </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-bold text-gray-700">Nguyên nhân cốt lõi (Root Cause)</label>
+            <input
+              type="text"
+              value={rootCause}
+              onChange={(e) => setRootCause(e.target.value)}
+              placeholder="VD: Rơ-le tách giấy bị dính hoặc bám bụi mực..."
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
 
-              <div className="space-y-1.5">
-                <label className="text-sm font-bold text-gray-700">Ná»™i dung / CÃ¡c bÆ°á»›c xá»­ lÃ½ *</label>
-                <textarea
-                  rows={8}
-                  value={content}
-                  onChange={e => setContent(e.target.value)}
-                  placeholder="## Triá»‡u chá»©ng&#10;MÃ´ táº£ váº¥n Ä‘á»...&#10;&#10;## CÃ¡c bÆ°á»›c xá»­ lÃ½&#10;1. BÆ°á»›c Ä‘áº§u tiÃªn...&#10;2. BÆ°á»›c thá»© hai..."
-                  className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-y font-mono"
-                />
-                <p className="text-[10px] text-gray-400 text-right">Markdown Ä‘Æ°á»£c há»— trá»£ â€¢ {content.length} kÃ½ tá»±</p>
-              </div>
-            </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-bold text-gray-700">Các bước xử lý chi tiết *</label>
+            <textarea
+              rows={6}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Mô tả cụ thể từng bước thao tác:&#10;1. Tắt nguồn và rút cáp điện...&#10;2. Tháo nắp bên hông...&#10;3. Dùng cồn vệ sinh trục cuốn..."
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs leading-relaxed"
+            />
+          </div>
 
-            <div className="p-6 bg-gray-50 flex justify-between items-center">
-              <p className="text-xs text-gray-400">BÃ i viáº¿t sáº½ Ä‘Æ°á»£c kiá»ƒm duyá»‡t trÆ°á»›c khi xuáº¥t báº£n.</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-                >
-                  Há»§y
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={!title.trim() || !content.trim() || isSubmitting}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmitting ? (
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                  Gá»­i bÃ i viáº¿t
-                </button>
-              </div>
-            </div>
-          </>
-        )}
+          <div className="space-y-1.5">
+            <label className="text-sm font-bold text-gray-700">Từ khóa tìm kiếm (Tags, cách nhau bằng dấu phẩy)</label>
+            <input
+              type="text"
+              value={tagsInput}
+              onChange={(e) => setTagsInput(e.target.value)}
+              placeholder="VD: HP, Kẹt giấy, Pickup Roller, M404"
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        <div className="p-6 bg-gray-50 flex justify-end gap-3 border-t border-gray-100">
+          <button onClick={onClose} disabled={isSubmitting} className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100">
+            Hủy
+          </button>
+          <button onClick={handleSubmit} disabled={isSubmitting} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2">
+            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            Lưu bài viết
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -683,7 +340,47 @@ export default function KnowledgeBasePage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
-  const [articles, setArticles] = useState<Article[]>(ARTICLES);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch articles from real API
+  const loadArticles = useCallback(async () => {
+    setLoading(true);
+    try {
+      const categoryParam = activeFilter === 'All' ? 'ALL' : activeFilter.toUpperCase();
+      const res = await fetch(`/api/tech/knowledge-base?category=${encodeURIComponent(categoryParam)}&q=${encodeURIComponent(searchQuery)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data?.articles) {
+          setArticles(json.data.articles);
+        }
+      }
+    } catch (err) {
+      console.error('[knowledge-base] Error fetching articles:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeFilter, searchQuery]);
+
+  useEffect(() => {
+    loadArticles();
+  }, [loadArticles]);
+
+  const handleLike = async (id: string) => {
+    // Optimistic UI update
+    setArticles(prev => prev.map(a => a.id === id ? { ...a, likes: a.likes + 1 } : a));
+    setSelectedArticle(prev => prev && prev.id === id ? { ...prev, likes: prev.likes + 1 } : prev);
+
+    try {
+      await fetch('/api/tech/knowledge-base', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    } catch {
+      // ignore error
+    }
+  };
 
   const getCategoryStyle = (category: Category) => {
     switch (category) {
@@ -707,36 +404,10 @@ export default function KnowledgeBasePage() {
     }
   };
 
-  const filteredArticles = articles.filter(article => {
-    const matchesFilter = activeFilter === 'All' || article.category.toUpperCase() === activeFilter.toUpperCase();
-    const matchesSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      article.excerpt.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (article.tags ?? []).some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesFilter && matchesSearch;
-  });
-
-  const handleLike = (id: string) => {
-    setArticles(prev => prev.map(a => a.id === id ? { ...a, likes: a.likes + 1 } : a));
-    // Update selected article too
-    setSelectedArticle(prev => prev && prev.id === id ? { ...prev, likes: prev.likes + 1 } : prev);
-  };
-
-  const handleNewArticle = (newArticle: Omit<Article, 'id' | 'views' | 'likes' | 'date' | 'isVerified'>) => {
-    const article: Article = {
-      ...newArticle,
-      id: String(Date.now()),
-      views: 0,
-      likes: 0,
-      date: 'Vá»«a Ä‘Äƒng',
-      isVerified: false,
-    };
-    setArticles(prev => [article, ...prev]);
-  };
-
   const totalViews = articles.reduce((sum, a) => sum + a.views, 0);
-  const topContributor = Object.entries(
+  const topContributor = articles.length === 0 ? '—' : Object.entries(
     articles.reduce((acc, a) => ({ ...acc, [a.author]: (acc[a.author] || 0) + 1 }), {} as Record<string, number>)
-  ).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'N/A';
+  ).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—';
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
@@ -744,15 +415,15 @@ export default function KnowledgeBasePage() {
         {/* HEADER */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Knowledge Base</h1>
-            <p className="text-gray-500 mt-1">HÆ°á»›ng dáº«n, tÃ i liá»‡u vÃ  tips tá»« cá»™ng Ä‘á»“ng ká»¹ thuáº­t viÃªn</p>
+            <h1 className="text-2xl font-bold text-gray-900">Cẩm Nang Kỹ Thuật (Knowledge Base)</h1>
+            <p className="text-gray-500 mt-1">Kho hướng dẫn xử lý sự cố, mã lỗi và quy trình chuẩn từ kỹ thuật viên</p>
           </div>
           <button
             onClick={() => setIsShareModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold shadow-sm hover:bg-blue-700 active:bg-blue-800 transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold shadow-sm hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            ÄÃ³ng gÃ³p bÃ i viáº¿t
+            Đóng góp bài viết
           </button>
         </div>
 
@@ -760,7 +431,7 @@ export default function KnowledgeBasePage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Tá»•ng bÃ i viáº¿t</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Tổng bài hướng dẫn</p>
               <h2 className="text-3xl font-bold text-gray-900">{articles.length}</h2>
             </div>
             <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
@@ -769,8 +440,8 @@ export default function KnowledgeBasePage() {
           </div>
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Tá»•ng lÆ°á»£t xem</p>
-              <h2 className="text-3xl font-bold text-gray-900">{(totalViews / 1000).toFixed(1)}k</h2>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Lượt tham khảo</p>
+              <h2 className="text-3xl font-bold text-gray-900">{totalViews.toLocaleString()}</h2>
             </div>
             <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center text-green-600">
               <Eye className="w-5 h-5" />
@@ -778,8 +449,8 @@ export default function KnowledgeBasePage() {
           </div>
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">ÄÃ³ng gÃ³p nhiá»u nháº¥t</p>
-              <h2 className="text-xl font-bold text-gray-900">{topContributor}</h2>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Đóng góp tích cực</p>
+              <h2 className="text-lg font-bold text-gray-900">{topContributor}</h2>
             </div>
             <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center text-orange-600">
               <Flame className="w-5 h-5" />
@@ -793,7 +464,7 @@ export default function KnowledgeBasePage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
             <input
               type="text"
-              placeholder="TÃ¬m mÃ£ lá»—i, model thiáº¿t bá»‹, hoáº·c tá»« khÃ³a..."
+              placeholder="Tìm mã lỗi (SC542, Error 619), tên thiết bị hoặc từ khóa..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-sm"
@@ -810,30 +481,34 @@ export default function KnowledgeBasePage() {
                     : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                {filter}
+                {filter === 'All' ? 'Tất cả' : filter}
               </button>
             ))}
           </div>
         </div>
 
         {/* ARTICLES GRID */}
-        {filteredArticles.length === 0 ? (
+        {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-            <BookOpen className="w-12 h-12 mb-4 opacity-30" />
-            <p className="font-medium">KhÃ´ng tÃ¬m tháº¥y bÃ i viáº¿t nÃ o</p>
-            <p className="text-sm mt-1">Thá»­ tá»« khÃ³a khÃ¡c hoáº·c Ä‘Ã³ng gÃ³p bÃ i viáº¿t má»›i</p>
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
+            <p className="text-sm">Đang tải cẩm nang kỹ thuật...</p>
+          </div>
+        ) : articles.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-gray-400 bg-white rounded-2xl border border-gray-100">
+            <BookOpen className="w-12 h-12 mb-3 text-gray-300" />
+            <p className="font-semibold text-gray-700">Không tìm thấy bài viết phù hợp</p>
+            <p className="text-xs text-gray-400 mt-1">Thử từ khóa khác hoặc đóng góp bài viết mới.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredArticles.map(article => {
-              const CategoryIcon = CATEGORY_ICON[article.category];
+            {articles.map(article => {
+              const CategoryIcon = CATEGORY_ICON[article.category] || CATEGORY_ICON.HARDWARE;
               return (
                 <div
                   key={article.id}
                   onClick={() => setSelectedArticle(article)}
                   className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-200 hover:-translate-y-1 transition-all duration-300 group cursor-pointer flex flex-col h-full"
                 >
-                  {/* Card Header */}
                   <div className="flex justify-between items-center mb-4">
                     <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wide ${getCategoryStyle(article.category)}`}>
                       {article.category}
@@ -848,32 +523,24 @@ export default function KnowledgeBasePage() {
                     </div>
                   </div>
 
-                  {/* Content */}
                   <h3 className="text-base font-bold text-gray-900 mb-2 leading-tight group-hover:text-blue-600 transition-colors">
                     {article.title}
                   </h3>
                   <p className="text-sm text-gray-500 mb-4 line-clamp-2">{article.excerpt}</p>
 
-                  {/* Tags preview */}
                   {article.tags && article.tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-4">
                       {article.tags.slice(0, 3).map(tag => (
                         <span key={tag} className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">
-                          {tag}
+                          #{tag}
                         </span>
                       ))}
-                      {article.tags.length > 3 && (
-                        <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium">
-                          +{article.tags.length - 3}
-                        </span>
-                      )}
                     </div>
                   )}
 
-                  {/* Footer */}
                   <div className="mt-auto flex items-center justify-between border-t border-gray-50 pt-4">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-xs font-bold">
+                      <div className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold">
                         {article.author.charAt(0)}
                       </div>
                       <span className="text-xs font-medium text-gray-600">{article.author}</span>
@@ -890,9 +557,8 @@ export default function KnowledgeBasePage() {
                     </div>
                   </div>
 
-                  {/* Read more indicator */}
                   <div className="mt-3 flex items-center gap-1 text-blue-500 text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
-                    Xem chi tiáº¿t <ChevronRight className="w-3.5 h-3.5" />
+                    Xem chi tiết <ChevronRight className="w-3.5 h-3.5" />
                   </div>
                 </div>
               );
@@ -910,7 +576,7 @@ export default function KnowledgeBasePage() {
       <ShareKnowledgeModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
-        onSubmit={handleNewArticle}
+        onSuccess={(newArt) => setArticles(prev => [newArt, ...prev])}
       />
     </div>
   );

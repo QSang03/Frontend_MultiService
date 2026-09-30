@@ -50,8 +50,8 @@ export async function GET(req: Request) {
         // ignore parse error
       }
 
-      const clientName = (attrs.customerName as string) || (attrs.companyName as string) || 'Doanh nghiệp Đối tác';
-      const address = (attrs.address as string) || 'Khu Công Nghệ Cao, TP. Thủ Đức, TP.HCM';
+      const clientName = (attrs.customerName as string) || (attrs.companyName as string) || 'Khách hàng';
+      const address = (attrs.address as string) || (attrs.location as string) || 'Chưa cập nhật địa chỉ';
 
       let dueDate = '24h SLA';
       if (t.targetResolutionAt) {
@@ -67,11 +67,19 @@ export async function GET(req: Request) {
         priority: mapPriority(t.priority as string),
         status: mapStatusToTechStatus(Number(t.status || 1)),
         address,
-        distance: (attrs.distance as string) || '3.2 km',
+        distance: (attrs.distance as string) || '—',
         time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
         dueDate,
         description: String(t.description || 'Xử lý sự cố kỹ thuật theo SLA cam kết.'),
         assignedTechId: t.assignedTechId ? String(t.assignedTechId) : undefined,
+        createdAt: t.createdAt ? String(t.createdAt) : new Date().toISOString(),
+        targetResolutionAt: t.targetResolutionAt ? String(t.targetResolutionAt) : undefined,
+        rawAttributes: t.attributes ? String(t.attributes) : '{}',
+        slaPaused: Boolean(attrs.slaPaused),
+        slaPauseReason: attrs.slaPauseReason as string | undefined,
+        slaPauseNotes: attrs.slaPauseNotes as string | undefined,
+        slaPausedAt: attrs.slaPausedAt as string | undefined,
+        slaTotalPausedMinutes: Number(attrs.slaTotalPausedMinutes || 0),
       };
     });
 

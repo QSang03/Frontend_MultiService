@@ -18,6 +18,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import internalApiClient from '@/lib/api/internal-client';
+import { toast } from '@/components/ui/Toast';
 
 export interface VendorRmaDto {
   id: string;
@@ -127,9 +128,10 @@ export default function VendorRmaManagement() {
         rmaId,
         status: newStatus,
       });
+      toast.success('Đã cập nhật trạng thái RMA');
       fetchRmas();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Cập nhật trạng thái thất bại');
+      toast.error(err instanceof Error ? err.message : 'Cập nhật trạng thái thất bại');
     } finally {
       setIsSubmitting(false);
     }
@@ -151,9 +153,10 @@ export default function VendorRmaManagement() {
       setSelectedRmaForSwap(null);
       setReplacementSerial('');
       setSwapNotes('');
+      toast.success('Đổi Serial thành công');
       fetchRmas();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Đổi Serial thất bại');
+      toast.error(err instanceof Error ? err.message : 'Đổi Serial thất bại');
     } finally {
       setIsSubmitting(false);
     }
@@ -163,7 +166,7 @@ export default function VendorRmaManagement() {
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!createForm.itemId || !createForm.vendorName || !createForm.originalSerialNumber) {
-      alert('Vui lòng điền đủ thông tin thiết bị, nhà cung cấp và Serial Number');
+      toast.error('Vui lòng điền đủ thông tin thiết bị, nhà cung cấp và Serial Number');
       return;
     }
 
@@ -180,9 +183,10 @@ export default function VendorRmaManagement() {
         shippingCostCents: 0,
         ticketId: '',
       });
+      toast.success('Tạo hồ sơ RMA thành công');
       fetchRmas();
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : 'Tạo hồ sơ RMA thất bại');
+      toast.error(err instanceof Error ? err.message : 'Tạo hồ sơ RMA thất bại');
     } finally {
       setIsSubmitting(false);
     }

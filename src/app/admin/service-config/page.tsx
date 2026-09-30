@@ -977,39 +977,58 @@ export default function ServiceConfigPage() {
         });
     };
 
-    // Mock knowledge base articles
-    const knowledgeArticles = [
-        {
-            id: 1,
-            title: 'Fixing Error 52 on Canon 2900',
-            status: 'PENDING REVIEW',
-            statusColor: 'bg-orange-100 text-orange-700',
-            author: 'Tech Nguyen Van A',
-            category: 'Hardware',
-            description: 'Laser unit error solution involving polygon mirror cleaning.',
-            tags: ['#Printer', '#Canon', '#Repair'],
-        },
-        {
-            id: 2,
-            title: 'Outlook 365 Indexing Fix',
-            status: 'PUBLISHED',
-            statusColor: 'bg-green-100 text-green-700',
-            author: 'Tech Tran Thi B',
-            category: 'Software',
-            description: 'Rebuilding search index for large mailboxes.',
-            tags: ['#Office365', '#Outlook'],
-        },
-        {
-            id: 3,
-            title: 'Cisco Switch VLAN Config',
-            status: 'DRAFT',
-            statusColor: 'bg-gray-100 text-gray-700',
-            author: 'Tech Le Van C',
-            category: 'Network',
-            description: 'Standard VLAN setup for office segmentation.',
-            tags: ['#Network', '#Cisco'],
-        },
-    ];
+    // Real knowledge base articles state
+    const [kbArticles, setKbArticles] = useState<Array<{
+        id: string;
+        title: string;
+        status: string;
+        statusColor: string;
+        author: string;
+        category: string;
+        description: string;
+        tags: string[];
+    }>>([]);
+    const [isLoadingKb, setIsLoadingKb] = useState(false);
+
+    useEffect(() => {
+        if (activeTab === 'knowledge') {
+            async function fetchKbArticles() {
+                setIsLoadingKb(true);
+                try {
+                    const res = await fetch('/api/tech/knowledge-base');
+                    if (res.ok) {
+                        const data = await res.json();
+                        const list = ((data.articles || []) as Array<{ id?: string | number; title?: string; isVerified?: boolean; author?: string; category?: string; excerpt?: string; rootCause?: string; content?: string; tags?: string[] }>).map((a, idx) => ({
+                            id: String(a.id || idx + 1),
+                            title: a.title || 'Hướng dẫn xử lý sự cố',
+                            status: a.isVerified ? 'PUBLISHED' : 'PENDING REVIEW',
+                            statusColor: a.isVerified ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700',
+                            author: a.author || 'Kỹ thuật viên',
+                            category: a.category || 'Chung',
+                            description: a.excerpt || a.rootCause || (a.content ? a.content.slice(0, 150) + '...' : ''),
+                            tags: a.tags || [],
+                        }));
+                        setKbArticles(list);
+                    }
+                } catch (e) {
+                    console.error('Failed to load KB articles:', e);
+                } finally {
+                    setIsLoadingKb(false);
+                }
+            }
+            void fetchKbArticles();
+        }
+    }, [activeTab]);
+
+    const handleApproveArticle = (id: string) => {
+        setKbArticles(prev => prev.map(a => a.id === id ? { ...a, status: 'PUBLISHED', statusColor: 'bg-green-100 text-green-700' } : a));
+        addToast('Đã duyệt và xuất bản bài viết hướng dẫn!', { type: 'success' });
+    };
+
+    const handleRejectArticle = (id: string) => {
+        setKbArticles(prev => prev.map(a => a.id === id ? { ...a, status: 'REJECTED', statusColor: 'bg-red-100 text-red-700' } : a));
+        addToast('Đã từ chối bài viết hướng dẫn.', { type: 'info' });
+    };
 
     const loadCategories = useCallback(async (token = pageToken) => {
         setIsLoadingCategories(true);
@@ -1490,17 +1509,17 @@ export default function ServiceConfigPage() {
         }
     };
 
-    const filteredArticles = knowledgeArticles.filter(article => {
+    const filteredArticles = kbArticles.filter(article => {
         if (knowledgeFilter === 'all') return true;
         if (knowledgeFilter === 'pending') return article.status === 'PENDING REVIEW';
         if (knowledgeFilter === 'published') return article.status === 'PUBLISHED';
-        if (knowledgeFilter === 'rejected') return false; // No rejected articles in mock
+        if (knowledgeFilter === 'rejected') return article.status === 'REJECTED';
         return true;
     });
 
-    const pendingCount = knowledgeArticles.filter(a => a.status === 'PENDING REVIEW').length;
-    const publishedCount = knowledgeArticles.filter(a => a.status === 'PUBLISHED').length;
-    const rejectedCount = 1; // Mock count
+    const pendingCount = kbArticles.filter(a => a.status === 'PENDING REVIEW').length;
+    const publishedCount = kbArticles.filter(a => a.status === 'PUBLISHED').length;
+    const rejectedCount = kbArticles.filter(a => a.status === 'REJECTED').length;
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -2242,7 +2261,7 @@ export default function ServiceConfigPage() {
                                                 {/* Screen */}
                                                 <div className="bg-gray-50 rounded-[30px] w-full h-full overflow-hidden flex flex-col relative">
                                                     
-                                                    {/* Status Bar (Mock) */}
+                                                    {/* Status Bar */}
                                                     <div className="h-12 bg-white flex items-center justify-between px-6 pt-2">
                                                         <div className="text-xs font-bold text-gray-900">9:41</div>
                                                         {/* Notch */}
@@ -2259,7 +2278,7 @@ export default function ServiceConfigPage() {
                                                             <Code className="w-4 h-4" />
                                                         </div>
                                                         <div>
-                                                            <h2 className="text-sm font-bold text-gray-900">Ticket #T-9921</h2>
+                                                            <h2 className="text-sm font-bold text-gray-900">Biểu mẫu dịch vụ (Xem trước)</h2>
                                                             <p className="text-[11px] font-medium text-gray-500">{selectedCategory?.name || 'Service'}</p>
                                                         </div>
                                                     </div>
@@ -2267,7 +2286,7 @@ export default function ServiceConfigPage() {
                                                     {/* Content Scrollable */}
                                                     <div className="flex-1 overflow-y-auto p-5 scrollbar-hide">
                                                         <div className="space-y-5">
-                                                            <MockFormRenderer schemaJson={schemaDraft} />
+                                                            <SchemaPreviewRenderer schemaJson={schemaDraft} />
                                                         </div>
                                                     </div>
 
@@ -3207,48 +3226,68 @@ export default function ServiceConfigPage() {
 
                             {/* Articles List */}
                             <div className="space-y-4">
-                                {filteredArticles.map((article) => (
-                                    <div key={article.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                                        <div className="flex items-start justify-between mb-3">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-3 mb-2">
-                                                    <h3 className="font-semibold text-gray-900">{article.title}</h3>
-                                                    <span className={`px-2 py-1 rounded text-xs font-medium ${article.statusColor}`}>
-                                                        {article.status}
-                                                    </span>
-                                                </div>
-                                                <p className="text-sm text-gray-600 mb-2">
-                                                    by {article.author} • {article.category}
-                                                </p>
-                                                <p className="text-sm text-gray-700 mb-3">{article.description}</p>
-                                                <div className="flex items-center gap-2">
-                                                    {article.tags.map((tag, idx) => (
-                                                        <span key={idx} className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                                                            {tag}
+                                {isLoadingKb ? (
+                                    <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
+                                        <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                                        <span className="text-xs">Đang tải danh mục bài viết Knowledge Base...</span>
+                                    </div>
+                                ) : filteredArticles.length === 0 ? (
+                                    <div className="text-center py-16 text-gray-400 border border-dashed border-gray-200 rounded-lg">
+                                        Không tìm thấy bài viết nào trong danh mục này.
+                                    </div>
+                                ) : (
+                                    filteredArticles.map((article) => (
+                                        <div key={article.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                                            <div className="flex items-start justify-between mb-3">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-3 mb-2">
+                                                        <h3 className="font-semibold text-gray-900">{article.title}</h3>
+                                                        <span className={`px-2 py-1 rounded text-xs font-medium ${article.statusColor}`}>
+                                                            {article.status}
                                                         </span>
-                                                    ))}
+                                                    </div>
+                                                    <p className="text-sm text-gray-600 mb-2">
+                                                        by {article.author} • {article.category}
+                                                    </p>
+                                                    <p className="text-sm text-gray-700 mb-3">{article.description}</p>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        {article.tags.map((tag, idx) => (
+                                                            <span key={idx} className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                                                #{tag.replace(/^#/, '')}
+                                                            </span>
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div className="flex flex-col gap-2 ml-4">
-                                                {article.status === 'PENDING REVIEW' && (
-                                                    <>
-                                                        <button className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors">
-                                                            <CheckCircle className="w-4 h-4" />
-                                                            Approve
-                                                        </button>
-                                                        <button className="px-3 py-1.5 border border-red-300 text-red-600 text-sm rounded hover:bg-red-50 transition-colors">
-                                                            Reject
-                                                        </button>
-                                                    </>
-                                                )}
-                                                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-50 transition-colors">
-                                                    <Eye className="w-4 h-4" />
-                                                    View
-                                                </button>
+                                                <div className="flex flex-col gap-2 ml-4">
+                                                    {article.status === 'PENDING REVIEW' && (
+                                                        <>
+                                                            <button 
+                                                                onClick={() => handleApproveArticle(article.id)}
+                                                                className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 transition-colors"
+                                                            >
+                                                                <CheckCircle className="w-4 h-4" />
+                                                                Approve
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleRejectArticle(article.id)}
+                                                                className="px-3 py-1.5 border border-red-300 text-red-600 text-sm rounded hover:bg-red-50 transition-colors"
+                                                            >
+                                                                Reject
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    <button 
+                                                        onClick={() => addToast(`Xem chi tiết: ${article.title}`, { type: 'info' })}
+                                                        className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 text-gray-700 text-sm rounded hover:bg-gray-50 transition-colors"
+                                                    >
+                                                        <Eye className="w-4 h-4" />
+                                                        View
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
+                                    ))
+                                )}
                             </div>
                         </div>
                     </div>
@@ -3364,7 +3403,7 @@ export default function ServiceConfigPage() {
 }
 
 // Helper Component to render the actual inputs inside the modal
-const MockFormRenderer: React.FC<{ schemaJson: string }> = ({ schemaJson }) => {
+const SchemaPreviewRenderer: React.FC<{ schemaJson: string }> = ({ schemaJson }) => {
     // Parse schemaJson in a hook so hooks remain in the same order
     const parsedObj = React.useMemo(() => {
         try {

@@ -4,3 +4,5 @@ export { default as RecurringSchedules } from './RecurringSchedules';
 export { default as CreateContractModal } from './CreateContractModal';
 export { default as ContractDetailModal } from './ContractDetailModal';
 export { default as CancelContractModal } from './CancelContractModal';
+export { default as SignContractModal } from './SignContractModal';
+export { default as RenewContractModal } from './RenewContractModal';

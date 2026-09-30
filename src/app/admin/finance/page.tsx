@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import TopHeader from '@/components/layout/TopHeader';
 import internalApiClient from '@/lib/api/internal-client';
+import { toast } from '@/components/ui/Toast';
 
 interface ProfitStreamItem {
   id: string;
@@ -83,7 +84,7 @@ export default function FinancePage() {
     riskFundBalance: 0,
     riskFundRate: 5,
     totalClawbackRemaining: 0,
-    nextSettlementDate: '25/03/2026',
+    nextSettlementDate: '',
   });
 
   const [profitStreams, setProfitStreams] = useState<ProfitStreamItem[]>([]);
@@ -98,9 +99,12 @@ export default function FinancePage() {
 
   // New settlement modal
   const [isCreateSettlementOpen, setIsCreateSettlementOpen] = useState(false);
-  const [newBatchMonth, setNewBatchMonth] = useState('Tháng 03/2026');
-  const [newBatchAmount, setNewBatchAmount] = useState('155000000');
-  const [newBatchRecipients, setNewBatchRecipients] = useState('25');
+  const [newBatchMonth, setNewBatchMonth] = useState(() => {
+    const now = new Date();
+    return `Tháng ${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()}`;
+  });
+  const [newBatchAmount, setNewBatchAmount] = useState('');
+  const [newBatchRecipients, setNewBatchRecipients] = useState('');
   const [isSubmittingBatch, setIsSubmittingBatch] = useState(false);
 
   const fetchFinanceData = useCallback(async () => {
@@ -141,7 +145,7 @@ export default function FinancePage() {
       await fetchFinanceData();
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: unknown) {
-      alert('Lỗi lưu cấu hình: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      toast.error('Lỗi lưu cấu hình: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setIsSavingRiskFund(false);
     }
@@ -158,9 +162,10 @@ export default function FinancePage() {
         recipients: Number(newBatchRecipients),
       });
       setIsCreateSettlementOpen(false);
+      toast.success('Đã tạo đợt quyết toán thành công!');
       await fetchFinanceData();
     } catch (err: unknown) {
-      alert('Lỗi tạo đợt quyết toán: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      toast.error('Lỗi tạo đợt quyết toán: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setIsSubmittingBatch(false);
     }
@@ -228,7 +233,7 @@ export default function FinancePage() {
               <CreditCard className="w-5 h-5 text-blue-500" />
             </div>
             <p className="text-3xl font-bold text-gray-900">
-              {fmtVnd(settlementBatches.length > 0 ? settlementBatches[0].amount : 125000000)}
+              {fmtVnd(settlementBatches.length > 0 ? settlementBatches[0].amount : 0)}
             </p>
             <p className="text-xs text-gray-500 mt-1">Kỳ tiếp theo: {summary.nextSettlementDate}</p>
           </div>
@@ -329,27 +334,35 @@ export default function FinancePage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 text-sm">
-                        {profitStreams.map((item) => (
-                          <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
-                            <td className="py-3 px-4">
-                              <span className="font-mono font-bold text-blue-600">{item.ticketCode}</span>
-                              <div className="text-xs text-gray-500">{item.description}</div>
+                        {profitStreams.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-sm text-gray-400">
+                              Chưa có dòng doanh thu hoặc giao dịch nào phát sinh trong kỳ.
                             </td>
-                            <td className="py-3 px-4">
-                              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-                                item.model === 'RECURRING'
-                                  ? 'bg-purple-100 text-purple-700'
-                                  : 'bg-blue-100 text-blue-700'
-                              }`}>
-                                {item.model}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-xs text-gray-600">{item.date}</td>
-                            <td className="py-3 px-4 text-right font-medium text-gray-800">{fmtVnd(item.revenue)}</td>
-                            <td className="py-3 px-4 text-right text-xs text-gray-500">{fmtVnd(item.cogs)}</td>
-                            <td className="py-3 px-4 text-right font-bold text-green-600">{fmtVnd(item.profit)}</td>
                           </tr>
-                        ))}
+                        ) : (
+                          profitStreams.map((item) => (
+                            <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
+                              <td className="py-3 px-4">
+                                <span className="font-mono font-bold text-blue-600">{item.ticketCode}</span>
+                                <div className="text-xs text-gray-500">{item.description}</div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                                  item.model === 'RECURRING'
+                                    ? 'bg-purple-100 text-purple-700'
+                                    : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                  {item.model}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-xs text-gray-600">{item.date}</td>
+                              <td className="py-3 px-4 text-right font-medium text-gray-800">{fmtVnd(item.revenue)}</td>
+                              <td className="py-3 px-4 text-right text-xs text-gray-500">{fmtVnd(item.cogs)}</td>
+                              <td className="py-3 px-4 text-right font-bold text-green-600">{fmtVnd(item.profit)}</td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -377,31 +390,37 @@ export default function FinancePage() {
                   </h3>
 
                   <div className="space-y-3">
-                    {carryForwardDebts.map((debt) => (
-                      <div key={debt.id} className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 space-y-2 text-xs">
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-gray-900">{debt.saleRep}</span>
-                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-semibold text-[10px]">
-                            {debt.status}
-                          </span>
-                        </div>
-                        <div className="text-gray-500">Ref: {debt.ticketRef}</div>
-                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-200/60">
-                          <div>
-                            <span className="text-gray-500">Tổng truy thu:</span>{' '}
-                            <span className="font-semibold text-gray-900">{fmtVnd(debt.totalClawback)}</span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500">Đã trừ (30% Cap):</span>{' '}
-                            <span className="font-semibold text-emerald-700">-{fmtVnd(debt.deductedImmediate)}</span>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between text-[11px] pt-1">
-                          <span className="text-amber-800 font-bold">Gối đầu còn lại: {fmtVnd(debt.carryForwardRemaining)}</span>
-                          <span className="text-gray-400">{debt.nextPeriod}</span>
-                        </div>
+                    {carryForwardDebts.length === 0 ? (
+                      <div className="p-4 bg-gray-50 rounded-xl border border-dashed border-gray-300 text-center text-xs text-gray-500">
+                        Không có hồ sơ nợ truy thu nào đang gối đầu.
                       </div>
-                    ))}
+                    ) : (
+                      carryForwardDebts.map((debt) => (
+                        <div key={debt.id} className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 space-y-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-gray-900">{debt.saleRep}</span>
+                            <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded font-semibold text-[10px]">
+                              {debt.status}
+                            </span>
+                          </div>
+                          <div className="text-gray-500">Ref: {debt.ticketRef}</div>
+                          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-200/60">
+                            <div>
+                              <span className="text-gray-500">Tổng truy thu:</span>{' '}
+                              <span className="font-semibold text-gray-900">{fmtVnd(debt.totalClawback)}</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Đã trừ (30% Cap):</span>{' '}
+                              <span className="font-semibold text-emerald-700">-{fmtVnd(debt.deductedImmediate)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] pt-1">
+                            <span className="text-amber-800 font-bold">Gối đầu còn lại: {fmtVnd(debt.carryForwardRemaining)}</span>
+                            <span className="text-gray-400">{debt.nextPeriod}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
@@ -441,23 +460,31 @@ export default function FinancePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 text-sm">
-                    {settlementBatches.map((batch) => (
-                      <tr key={batch.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4 font-bold text-gray-900">{batch.month}</td>
-                        <td className="py-3 px-4 text-gray-600">{batch.recipients} nhân sự (Sale/Tech)</td>
-                        <td className="py-3 px-4 text-xs text-gray-500">{batch.scheduled}</td>
-                        <td className="py-3 px-4 text-right font-bold text-blue-600">{fmtVnd(batch.amount)}</td>
-                        <td className="py-3 px-4 text-center">
-                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                            batch.status === 'Paid'
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-yellow-100 text-yellow-700'
-                          }`}>
-                            {batch.status}
-                          </span>
+                    {settlementBatches.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-xs text-gray-500">
+                          Chưa có đợt quyết toán hoa hồng nào. Bấm &quot;Mở Đợt Mới&quot; để tạo đợt quyết toán.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      settlementBatches.map((batch) => (
+                        <tr key={batch.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4 font-bold text-gray-900">{batch.month}</td>
+                          <td className="py-3 px-4 text-gray-600">{batch.recipients} nhân sự (Sale/Tech)</td>
+                          <td className="py-3 px-4 text-xs text-gray-500">{batch.scheduled}</td>
+                          <td className="py-3 px-4 text-right font-bold text-blue-600">{fmtVnd(batch.amount)}</td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                              batch.status === 'Paid'
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {batch.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -542,29 +569,37 @@ export default function FinancePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 text-sm">
-                    {riskFundActivities.map((act) => (
-                      <tr key={act.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                            act.type === 'deduction'
-                              ? 'bg-purple-100 text-purple-700'
-                              : 'bg-red-100 text-red-700'
-                          }`}>
-                            {act.type === 'deduction' ? '+ TRÍCH LẬP' : '- BỒI THƯỜNG'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-xs text-gray-700">{act.description}</td>
-                        <td className="py-3 px-4 text-xs text-gray-500">{act.date}</td>
-                        <td className={`py-3 px-4 text-right font-bold ${
-                          act.amount > 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {fmtVnd(act.amount)}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-medium text-gray-800">
-                          {fmtVnd(act.balanceAfter)}
+                    {riskFundActivities.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-xs text-gray-500">
+                          Chưa có lịch sử giao dịch quỹ rủi ro phát sinh.
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      riskFundActivities.map((act) => (
+                        <tr key={act.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4">
+                            <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                              act.type === 'deduction'
+                                ? 'bg-purple-100 text-purple-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}>
+                              {act.type === 'deduction' ? '+ TRÍCH LẬP' : '- BỒI THƯỜNG'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-xs text-gray-700">{act.description}</td>
+                          <td className="py-3 px-4 text-xs text-gray-500">{act.date}</td>
+                          <td className={`py-3 px-4 text-right font-bold ${
+                            act.amount > 0 ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {fmtVnd(act.amount)}
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-medium text-gray-800">
+                            {fmtVnd(act.balanceAfter)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

@@ -134,81 +134,9 @@ const MAIN_TAB_STORAGE_KEY = 'sale-quotations-main-tab';
 const isValidMainTab = (value: string | null): value is MainTab =>
   value === 'pipeline' || value === 'templates' || value === 'contracts';
 
-const mockQuotes: Quote[] = [
-  {
-    id: 'Q-2024-001',
-    customer: 'TechSolutions Ltd',
-    status: 'sent',
-    dealType: 'long-term',
-    totalValue: '50.000.000 ₫',
-    netProfit: '12.000.000 ₫',
-    createdDate: '2024-01-15',
-    services: ['Maintenance 12 months', 'Server Upgrade'],
-  },
-  {
-    id: 'Q-2024-002',
-    customer: 'Nguyen Van A',
-    status: 'draft',
-    dealType: 'one-deal',
-    totalValue: '1.500.000 ₫',
-    netProfit: '500.000 ₫',
-    createdDate: '2024-01-20',
-    services: ['Laptop Repair', 'RAM 8GB'],
-  },
-  {
-    id: 'Q-2024-004',
-    customer: 'Big Corp Inc',
-    status: 'internal-review',
-    dealType: 'long-term',
-    totalValue: '200.000.000 ₫',
-    netProfit: '40.000.000 ₫',
-    createdDate: '2024-02-05',
-    services: ['Full Office IT Setup', 'Cloud Migration'],
-  },
-];
-
-const mockTemplates: Template[] = [
-  {
-    id: '1',
-    name: 'Standard Maintenance',
-    description: 'Basic server & network monitoring',
-    price: '5,000,000 / mo',
-    defaultItems: [
-        { name: 'Server Maintenance (Monthly)', price: 5000000 }
-    ]
-  },
-  {
-    id: '2',
-    name: 'Office Setup Pack',
-    description: 'Cabling, router config for <20 users',
-    price: '20,000,000',
-    defaultItems: [
-        { name: 'Cabling Infrastructure', price: 15000000 },
-        { name: 'Router Configuration', price: 5000000 }
-    ]
-  },
-  {
-    id: '3',
-    name: 'Cloud Migration',
-    description: 'Move on-prem to AWS/Azure',
-    price: '15,000,000',
-    defaultItems: [
-        { name: 'Cloud Assessment', price: 5000000 },
-        { name: 'Migration Service', price: 10000000 }
-    ]
-  },
-  {
-    id: '4',
-    name: 'PC Refresh',
-    description: 'Bulk hardware upgrade',
-    price: 'Call for Quote',
-    defaultItems: []
-  },
-];
-
 export default function SaleQuotationsPage() {
   const router = useRouter();
-  const [quotes, setQuotes] = useState<Quote[]>(mockQuotes);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedClient, setSelectedClient] = useState('');
@@ -816,15 +744,23 @@ export default function SaleQuotationsPage() {
     }
   };
 
-  const handleTemplateSelect = (template: Template) => {
-    setQuotationItemRows(template.defaultItems.map(item => ({
-      description: item.name,
-      quantity: '1',
-      unit_price: String(item.price),
-      unit_cost: '',
-    })));
-    const total = template.defaultItems.reduce((s, i) => s + i.price, 0);
+  const handleTemplateSelect = (template: RealTemplate) => {
+    let items: Array<{ description?: string; name?: string; quantity?: string | number; unit_price?: string | number; unitPrice?: string | number; price?: string | number; unit_cost?: string | number; unitCost?: string | number }> = [];
+    try {
+      items = JSON.parse(template.items || '[]');
+    } catch {
+      items = [];
+    }
+    const rows = items.map(item => ({
+      description: item.description || item.name || '',
+      quantity: String(item.quantity || '1'),
+      unit_price: String(item.unit_price || item.unitPrice || item.price || '0'),
+      unit_cost: item.unit_cost || item.unitCost ? String(item.unit_cost || item.unitCost) : '',
+    }));
+    setQuotationItemRows(rows);
+    const total = rows.reduce((s, r) => s + (parseFloat(r.quantity || '0') * parseFloat(r.unit_price || '0')), 0);
     setQuotationTotalAmount(String(total));
+    setSelectedTemplateId(template.id);
     setShowTemplates(false);
     setShowCreateModal(true);
   };
@@ -2124,7 +2060,7 @@ export default function SaleQuotationsPage() {
         </div>
       )}
 
-      {/* Templates Modal (legacy mock templates) */}
+      {/* Templates Modal */}
       {showTemplates && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm transition-all duration-300"
@@ -2144,22 +2080,44 @@ export default function SaleQuotationsPage() {
               </button>
             </div>
             <div className="p-8 overflow-y-auto">
-              <div className="grid grid-cols-2 gap-6">
-                {mockTemplates.map((template) => (
-                  <button
-                    key={template.id}
-                    onClick={() => handleTemplateSelect(template)}
-                    className="text-left p-6 border border-gray-200 rounded-xl hover:border-blue-500 hover:shadow-md transition-all group h-full flex flex-col items-start"
-                  >
-                    <div className="p-3 bg-gray-50 rounded-lg group-hover:bg-blue-50 transition-colors mb-4">
-                        <FileText className="w-6 h-6 text-gray-500 group-hover:text-blue-600" />
-                    </div>
-                    <h3 className="font-bold text-gray-900 mb-1">{template.name}</h3>
-                    <p className="text-sm text-gray-500 mb-4 flex-1">{template.description}</p>
-                    <p className="text-blue-600 font-semibold">{template.price}</p>
-                  </button>
-                ))}
-              </div>
+              {loadingTemplates ? (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400 gap-2">
+                  <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs">Đang tải danh sách mẫu báo giá...</span>
+                </div>
+              ) : realTemplates.length === 0 ? (
+                <div className="text-center py-12 text-sm text-gray-400">
+                  Chưa có mẫu báo giá nào trong hệ thống.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-6">
+                  {realTemplates.map((template) => {
+                    let itemsCount = 0;
+                    try {
+                      itemsCount = JSON.parse(template.items || '[]').length;
+                    } catch {
+                      itemsCount = 0;
+                    }
+                    return (
+                      <button
+                        key={template.id}
+                        onClick={() => handleTemplateSelect(template)}
+                        className="text-left p-6 border border-gray-200 rounded-xl hover:border-blue-500 hover:shadow-md transition-all group h-full flex flex-col items-start"
+                      >
+                        <div className="p-3 bg-gray-50 rounded-lg group-hover:bg-blue-50 transition-colors mb-4">
+                            <FileText className="w-6 h-6 text-gray-500 group-hover:text-blue-600" />
+                        </div>
+                        <h3 className="font-bold text-gray-900 mb-1">{template.name}</h3>
+                        <p className="text-sm text-gray-500 mb-4 flex-1">{template.description || 'Mẫu cấu hình tiêu chuẩn.'}</p>
+                        <div className="flex items-center justify-between w-full text-xs">
+                          <span className="text-blue-600 font-semibold">{itemsCount} mục cấu hình</span>
+                          <span className="text-gray-400">{template.category || 'Standard'}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

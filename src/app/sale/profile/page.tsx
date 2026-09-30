@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { UserCircle, Mail, Phone, Shield, Key, Lock } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/components/ui';
+import { updateProfile } from '@/app/actions/profile';
 
 export default function SaleProfilePage() {
   const { user } = useAuth();
@@ -29,10 +30,21 @@ export default function SaleProfilePage() {
       return;
     }
     setIsSaving(true);
-    // TODO: gọi API cập nhật profile
-    await new Promise((r) => setTimeout(r, 800));
-    setIsSaving(false);
-    addToast('Cập nhật thông tin thành công!', { type: 'success' });
+    try {
+      const res = await updateProfile({
+        full_name: form.name.trim(),
+        phone: form.phone.trim(),
+      });
+      if (res.success) {
+        addToast('Cập nhật thông tin thành công!', { type: 'success' });
+      } else {
+        addToast(res.error || 'Cập nhật thông tin thất bại', { type: 'error' });
+      }
+    } catch {
+      addToast('Lỗi kết nối khi cập nhật', { type: 'error' });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

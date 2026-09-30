@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState } from 'react';
 import { X, Star, ThumbsUp, Send, CheckCircle2, MessageSquare, Award } from 'lucide-react';
@@ -35,6 +35,7 @@ export default function TicketRatingModal({
   const [feedback, setFeedback] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -44,16 +45,37 @@ export default function TicketRatingModal({
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch('/api/customer/tickets/rating', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId,
+          stars,
+          feedback,
+          tags: selectedTags,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Gửi đánh giá thất bại');
+      }
+
       setIsSubmitted(true);
       setTimeout(() => {
         onSubmitSuccess(stars, feedback);
-      }, 1200);
-    }, 500);
+      }, 1000);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Lỗi kết nối khi gửi đánh giá');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -90,6 +112,11 @@ export default function TicketRatingModal({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {errorMsg && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600">
+                {errorMsg}
+              </div>
+            )}
             <div className="text-center py-2">
               <span className="text-xs text-gray-500 block mb-2 font-medium">
                 Mức độ hài lòng của bạn về kỹ thuật viên & chất lượng sửa chữa:

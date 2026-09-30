@@ -59,86 +59,9 @@ interface RecurringCommission {
   status: 'AVAILABLE' | 'PROVISIONAL';
 }
 
-const INITIAL_INVOICES: Invoice[] = [
-  { id: 'INV-2024-001', client: 'TechSolutions Ltd', amount: 50000000, dueDate: '2024-02-15', status: 'pending_verification', createdBy: 'Nguyen Sale', updatedAt: '2024-01-20T08:30:00Z', updatedBy: 'Nguyen Sale' },
-  { id: 'INV-2024-002', client: 'Nguyen Van A', amount: 1500000, dueDate: '2024-01-25', status: 'paid', createdBy: 'Tran Sale', updatedAt: '2024-01-25T14:20:00Z', updatedBy: 'Admin' },
-  { id: 'INV-2024-003', client: 'StartUp Alpha', amount: 12000000, dueDate: '2024-02-01', status: 'overdue', createdBy: 'Nguyen Sale', updatedAt: '2024-01-28T09:00:00Z', updatedBy: 'Nguyen Sale' },
-];
-
-const INITIAL_TIER_COMMISSIONS: NewTierCommission[] = [
-  {
-    id: 'COM-NEW-01',
-    contractNo: 'HD-2026-0089',
-    client: 'VinGroup SmartCity',
-    serviceType: 'Hạ tầng Mạng & Firewall Cisco',
-    date: '12/02/2026',
-    baseProfit: 45000000,
-    tier: 'Tier 2 (MTD ≥ 50tr)',
-    rate: 0.15,
-    commission: 6750000,
-    status: 'AVAILABLE',
-  },
-  {
-    id: 'COM-NEW-02',
-    contractNo: 'HD-2026-0104',
-    client: 'Tập đoàn Dược phẩm MegaMed',
-    serviceType: 'Triển khai Cụm Server ProLiant',
-    date: '18/02/2026',
-    baseProfit: 60000000,
-    tier: 'Tier 2 (MTD ≥ 50tr)',
-    rate: 0.15,
-    commission: 9000000,
-    status: 'AVAILABLE',
-  },
-  {
-    id: 'COM-NEW-03',
-    contractNo: 'HD-2026-0112',
-    client: 'Design Studio X',
-    serviceType: 'Nâng cấp Phòng Lab Đồ họa',
-    date: '24/02/2026',
-    baseProfit: 25000000,
-    tier: 'Tier 1 (Cơ bản)',
-    rate: 0.10,
-    commission: 2500000,
-    status: 'PROVISIONAL',
-  },
-];
-
-const INITIAL_RECURRING_COMMISSIONS: RecurringCommission[] = [
-  {
-    id: 'COM-REC-01',
-    contractNo: 'HD-REC-2025-012',
-    client: 'TechCorp Enterprise',
-    periodMonth: 6,
-    billingCycle: 'Kỳ Tháng 02/2026',
-    periodProfit: 35000000,
-    retentionRate: 0.05,
-    commission: 1750000,
-    status: 'AVAILABLE',
-  },
-  {
-    id: 'COM-REC-02',
-    contractNo: 'HD-REC-2025-045',
-    client: 'Lawson Logistics Vietnam',
-    periodMonth: 4,
-    billingCycle: 'Kỳ Tháng 02/2026',
-    periodProfit: 50000000,
-    retentionRate: 0.05,
-    commission: 2500000,
-    status: 'AVAILABLE',
-  },
-  {
-    id: 'COM-REC-03',
-    contractNo: 'HD-REC-2025-089',
-    client: 'Chuỗi Bán Lẻ Retail Z',
-    periodMonth: 2,
-    billingCycle: 'Kỳ Tháng 02/2026',
-    periodProfit: 40000000,
-    retentionRate: 0.05,
-    commission: 2000000,
-    status: 'PROVISIONAL',
-  },
-];
+const INITIAL_INVOICES: Invoice[] = [];
+const INITIAL_TIER_COMMISSIONS: NewTierCommission[] = [];
+const INITIAL_RECURRING_COMMISSIONS: RecurringCommission[] = [];
 
 const statusConfig: Record<string, { label: string; color: string; dot: string; icon: React.ReactNode }> = {
   paid: { label: 'Đã thanh toán', color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-400', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
@@ -198,15 +121,44 @@ export default function RevenuePage() {
                 });
               }
             });
-            if (newTier.length > 0) setTierCommissions(newTier);
-            if (recurring.length > 0) setRecurringCommissions(recurring);
+            setTierCommissions(newTier);
+            setRecurringCommissions(recurring);
+          } else {
+            setTierCommissions([]);
+            setRecurringCommissions([]);
           }
         }
       } catch {
-        // preserve initial data as fallback
+        // empty fallback
       }
     }
+
+    async function loadInvoices() {
+      try {
+        const res = await fetch('/api/contracts?pageSize=50');
+        if (res.ok) {
+          const json = await res.json();
+          const contracts = json.data?.contracts || [];
+          setInvoices(contracts.map((c: Record<string, unknown>, idx: number) => {
+            const statusNum = Number(c.status || 0);
+            return {
+              id: String(c.contractNumber || c.id || `HD-${idx + 1}`),
+              client: String(c.customerName || c.title || 'Khách hàng Doanh nghiệp'),
+              amount: Number(c.totalValue || c.value || 0),
+              dueDate: c.endDate ? String(c.endDate).slice(0, 10) : '—',
+              status: statusNum === 2 ? 'paid' : statusNum === 1 ? 'pending_verification' : 'overdue',
+              createdBy: String(c.creatorName || 'Sale phụ trách'),
+              updatedAt: String(c.updatedAt || new Date().toISOString()),
+            };
+          }));
+        }
+      } catch (err) {
+        console.error('[revenue] Error loading contracts/invoices:', err);
+      }
+    }
+
     loadCommissions();
+    loadInvoices();
   }, []);
 
   const handleConfirmSlip = async (inv: Invoice) => {

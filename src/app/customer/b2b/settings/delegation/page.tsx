@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Calendar, Save, Info, UserCheck, Trash2, Clock, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Calendar, Save, Info, UserCheck, Trash2, Clock, CheckCircle2, Loader2 } from 'lucide-react';
 import { useToast } from '@/components/ui';
+import { useAuth } from '@/hooks/useAuth';
 
 interface Delegation {
   id: string;
@@ -16,17 +17,29 @@ interface Delegation {
   createdAt?: string;
 }
 
+interface Member {
+  id: string;
+  name: string;
+  email: string;
+  dept: string;
+  roleLabel: string;
+  status: string;
+}
+
 export default function DelegationB2B() {
+  const { user } = useAuth();
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [delegateTo, setDelegateTo] = useState('');
   const [scope, setScope] = useState('ALL');
   const [delegations, setDelegations] = useState<Delegation[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMembers, setLoadingMembers] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const { addToast } = useToast();
 
-  const fetchDelegations = async () => {
+  const fetchDelegations = useCallback(async () => {
     try {
       const res = await fetch('/api/customer/b2b/settings/delegation');
       const json = await res.json();
@@ -38,11 +51,27 @@ export default function DelegationB2B() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const fetchMembers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/customer/b2b/members');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.members)) {
+        // filter active members and exclude current user if matched
+        setMembers(json.members.filter((m: Member) => m.status === 'active' && m.id !== user?.id));
+      }
+    } catch (err) {
+      console.error('Fetch members for delegation failed:', err);
+    } finally {
+      setLoadingMembers(false);
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     fetchDelegations();
-  }, []);
+    fetchMembers();
+  }, [fetchDelegations, fetchMembers]);
 
   const handleCreate = async () => {
     if (!dateFrom || !dateTo || !delegateTo) {
@@ -60,7 +89,7 @@ export default function DelegationB2B() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          managerId: 'mgr-current-user',
+          managerId: user?.id || 'mgr-current-user',
           delegateeId: delegateTo,
           startDate: new Date(dateFrom).toISOString(),
           endDate: new Date(dateTo).toISOString(),
@@ -144,16 +173,28 @@ export default function DelegationB2B() {
         {/* Delegate to */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Ủy quyền cho nhân sự</label>
-          <select
-            value={delegateTo}
-            onChange={(e) => setDelegateTo(e.target.value)}
-            className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
-          >
-            <option value="">-- Chọn người nhận ủy quyền --</option>
-            <option value="user-le-thi-d">Phó phòng Lê Thị D (HR Lead)</option>
-            <option value="user-pham-hai">Senior Manager Phạm Hải (Technical Director)</option>
-            <option value="user-admin">Admin Doanh nghiệp</option>
-          </select>
+          {loadingMembers ? (
+            <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-500" /> Đang tải danh sách nhân sự doanh nghiệp...
+            </div>
+          ) : (
+            <select
+              value={delegateTo}
+              onChange={(e) => setDelegateTo(e.target.value)}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+            >
+              <option value="">-- Chọn người nhận ủy quyền --</option>
+              {members.length === 0 ? (
+                <option value="" disabled>Chưa có nhân sự nào trong danh sách</option>
+              ) : (
+                members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.dept} - {m.roleLabel}) • {m.email}
+                  </option>
+                ))
+              )}
+            </select>
+          )}
         </div>
 
         {/* Scope */}
@@ -170,7 +211,7 @@ export default function DelegationB2B() {
                 className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
               />
               <span className="text-sm text-gray-700">Tất cả yêu cầu phát sinh trong thời gian này</span>
-            </label >
+            </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
@@ -180,25 +221,25 @@ export default function DelegationB2B() {
                 onChange={(e) => setScope(e.target.value)}
                 className="w-4 h-4 text-emerald-600 focus:ring-emerald-500"
               />
-              <span className="text-sm text-gray-700">Chỉ yêu cầu dưới hạn mức ngân sách thông thường (≤ 2M)</span>
+              <span className="text-sm text-gray-700">Chỉ yêu cầu dưới hạn mức ngân sách thông thường (≤ 2.000.000 đ)</span>
             </label>
-          </div >
-        </div >
+          </div>
+        </div>
 
         {/* Info */}
-        < div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-sm text-amber-700" >
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 text-sm text-amber-700">
           <Info className="w-5 h-5 shrink-0 mt-0.5" />
           <p>
             Ủy quyền sẽ tự động hết hiệu lực vào <strong>{dateTo || '(ngày kết thúc)'}</strong>. Đảm bảo luồng duyệt không bị tắc nghẽn khi bạn vắng mặt.
           </p>
-        </div >
+        </div>
 
         <button
           onClick={handleCreate}
           disabled={submitting}
           className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 text-white rounded-lg font-semibold text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50"
         >
-          <Save className="w-4 h-4" />
+          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           {submitting ? 'Đang kích hoạt...' : 'Kích hoạt Ủy quyền'}
         </button>
       </div>
@@ -227,24 +268,28 @@ export default function DelegationB2B() {
               const toStr = new Date(d.endDate).toLocaleDateString('vi-VN');
               const isExpired = new Date(d.endDate) < new Date();
               const active = d.isActive && !isExpired;
+              const delegatee = members.find((m) => m.id === d.delegateeId);
 
               return (
                 <div key={d.id} className="py-3 flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900 text-sm">{d.delegateeId}</span>
+                      <span className="font-semibold text-gray-900 text-sm">
+                        {delegatee ? `${delegatee.name} (${delegatee.dept} - ${delegatee.roleLabel})` : d.delegateeId}
+                      </span>
                       <span
-                        className={`text-xs px-2 py-0.5 rounded font-medium ${active
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-gray-100 text-gray-500'
-                          }`}
+                        className={`text-xs px-2 py-0.5 rounded font-medium ${
+                          active
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
                       >
                         {active ? 'Đang hiệu lực' : 'Đã thu hồi / Hết hạn'}
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
                       <Clock className="w-3.5 h-3.5" />
-                      Từ {fromStr} đến {toStr} • Phạm vi: {d.requestType}
+                      Từ {fromStr} đến {toStr} • Phạm vi: {d.requestType === 'ALL' ? 'Tất cả yêu cầu' : 'Dưới hạn mức (≤ 2M)'}
                     </p>
                   </div>
                   {active && (

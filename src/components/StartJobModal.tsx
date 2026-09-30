@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState } from 'react';
 import { X, Clock, Play, AlertCircle, CheckCircle2, Timer } from 'lucide-react';
@@ -30,16 +30,37 @@ export default function StartJobModal({
   const [customMinutes, setCustomMinutes] = useState(90);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const durationToUse = isCustom ? customMinutes : selectedMinutes;
 
-  const handleStart = (e: React.FormEvent) => {
+  const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
-    setTimeout(() => {
-      setSubmitting(false);
+    setErrorMsg(null);
+
+    try {
+      const res = await fetch('/api/tech/tasks/start-job', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId: jobId,
+          estimatedDurationMinutes: durationToUse,
+          notes: notes.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Bắt đầu nhiệm vụ thất bại');
+      }
+
       onSuccess(durationToUse, notes);
-    }, 400);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Lỗi kết nối khi bắt đầu nhiệm vụ');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -65,6 +86,11 @@ export default function StartJobModal({
         </div>
 
         <form onSubmit={handleStart} className="space-y-4">
+          {errorMsg && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600">
+              {errorMsg}
+            </div>
+          )}
           <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-3 text-xs text-blue-900 space-y-1">
             <span className="font-bold flex items-center gap-1 text-blue-950">
               <Clock className="w-3.5 h-3.5 text-blue-700" />

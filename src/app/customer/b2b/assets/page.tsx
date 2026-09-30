@@ -23,9 +23,11 @@ import {
   Laptop,
   HardDrive,
   Cpu,
+  FileSignature,
 } from 'lucide-react';
 import EmptyState from '@/components/ui/EmptyState';
 import { useToast } from '@/components/ui';
+import DigitalHandoverModal from '@/components/DigitalHandoverModal';
 import Link from 'next/link';
 
 interface RepairRecord {
@@ -52,110 +54,6 @@ interface Asset {
   repairHistory: RepairRecord[];
   icon: React.ElementType;
 }
-
-const DEFAULT_ASSETS: Asset[] = [
-  {
-    id: '1',
-    name: 'Máy in Canon LBP 2900',
-    serial: 'CN20250001',
-    dept: 'IT Support',
-    user: 'Nguyễn Văn B',
-    status: 'active',
-    statusLabel: 'Đang sử dụng',
-    statusColor: 'bg-emerald-100 text-emerald-700',
-    tcoTotal: '3,200,000',
-    tcoBreakdown: { purchase: '1,500,000', repair: '1,200,000', parts: '500,000' },
-    lastRepair: '10/01/2026',
-    nextMaintenance: '15/04/2026',
-    daysUntilMaintenance: 8,
-    repairHistory: [
-      { date: '10/01/2026', description: 'Thay drum unit', cost: '800,000', tech: 'Trần Kỹ Thuật' },
-      { date: '05/09/2025', description: 'Vệ sinh roller, thay toner', cost: '400,000', tech: 'Lê Văn H' },
-    ],
-    icon: Printer,
-  },
-  {
-    id: '2',
-    name: 'Laptop Dell Latitude 3520',
-    serial: 'DL20240082',
-    dept: 'Sales & Marketing',
-    user: 'Phạm Hải Long',
-    status: 'maintenance',
-    statusLabel: 'Bảo trì',
-    statusColor: 'bg-amber-100 text-amber-700',
-    tcoTotal: '12,500,000',
-    tcoBreakdown: { purchase: '9,000,000', repair: '2,500,000', parts: '1,000,000' },
-    lastRepair: '05/03/2026',
-    nextMaintenance: '05/03/2026',
-    daysUntilMaintenance: -3,
-    repairHistory: [
-      { date: '05/03/2026', description: 'Thay pin, vệ sinh fan', cost: '1,500,000', tech: 'Nguyễn KT' },
-      { date: '12/11/2025', description: 'Cài lại hệ điều hành', cost: '500,000', tech: 'Trần KT' },
-      { date: '20/06/2025', description: 'Thay HDD → SSD 512GB', cost: '1,200,000', tech: 'Lê KT' },
-    ],
-    icon: Laptop,
-  },
-  {
-    id: '3',
-    name: 'Máy chủ NAS Synology DS920+',
-    serial: 'SY20230045',
-    dept: 'IT Infrastructure',
-    user: 'Server Room Tầng 3',
-    status: 'active',
-    statusLabel: 'Đang sử dụng',
-    statusColor: 'bg-emerald-100 text-emerald-700',
-    tcoTotal: '8,000,000',
-    tcoBreakdown: { purchase: '7,000,000', repair: '800,000', parts: '200,000' },
-    lastRepair: '15/02/2026',
-    nextMaintenance: null,
-    daysUntilMaintenance: null,
-    repairHistory: [
-      { date: '15/02/2026', description: 'Mở rộng RAM 8GB → 16GB', cost: '800,000', tech: 'Lê Văn H' },
-    ],
-    icon: Server,
-  },
-  {
-    id: '4',
-    name: 'Máy tính để bàn HP ProDesk 400 G7',
-    serial: 'HP20240120',
-    dept: 'Kế toán & Tài chính',
-    user: 'Lê Thị Diễm',
-    status: 'active',
-    statusLabel: 'Đang sử dụng',
-    statusColor: 'bg-emerald-100 text-emerald-700',
-    tcoTotal: '5,200,000',
-    tcoBreakdown: { purchase: '4,500,000', repair: '500,000', parts: '200,000' },
-    lastRepair: '20/12/2025',
-    nextMaintenance: '20/06/2026',
-    daysUntilMaintenance: 90,
-    repairHistory: [
-      { date: '20/12/2025', description: 'Vệ sinh tổng thể & tra keo tản nhiệt', cost: '200,000', tech: 'Nguyễn KT' },
-    ],
-    icon: Monitor,
-  },
-  {
-    id: '5',
-    name: 'Máy in đa năng Canon MF 269dw',
-    serial: 'CN20230078',
-    dept: 'Nhân sự HR',
-    user: 'Hoàng Mai',
-    status: 'disposed',
-    statusLabel: 'Chờ thanh lý',
-    statusColor: 'bg-gray-100 text-gray-600',
-    tcoTotal: '15,000,000',
-    tcoBreakdown: { purchase: '6,000,000', repair: '6,500,000', parts: '2,500,000' },
-    lastRepair: '01/02/2026',
-    nextMaintenance: null,
-    daysUntilMaintenance: null,
-    repairHistory: [
-      { date: '01/02/2026', description: 'Thay fuser unit cụm sấy', cost: '2,500,000', tech: 'Lê KT' },
-      { date: '15/10/2025', description: 'Thay trống mực & gạt mực', cost: '1,800,000', tech: 'Trần KT' },
-      { date: '02/05/2025', description: 'Sửa kẹt giấy cơ kéo', cost: '1,200,000', tech: 'Nguyễn KT' },
-      { date: '10/01/2025', description: 'Thay drum unit', cost: '1,000,000', tech: 'Lê KT' },
-    ],
-    icon: Printer,
-  },
-];
 
 type AssetTab = 'all' | 'active' | 'maintenance' | 'disposed';
 
@@ -231,6 +129,7 @@ function QRModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
                 Đang nạp mã QR...
               </div>
             ) : (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={qrImageSrc}
                 alt={`QR code for ${asset.name}`}
@@ -291,10 +190,10 @@ function TCOModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
         }
         if (data?.repairHistory && data.repairHistory.length > 0) {
           setLiveHistory(
-            data.repairHistory.map((r: any) => ({
+            data.repairHistory.map((r: { repairedAt?: string; description?: string; repairCostCents?: number; partsCostCents?: number; technicianId?: string }) => ({
               date: r.repairedAt ? r.repairedAt.slice(0, 10) : 'Gần đây',
               description: r.description,
-              cost: (r.repairCostCents + r.partsCostCents).toLocaleString('vi-VN'),
+              cost: ((r.repairCostCents || 0) + (r.partsCostCents || 0)).toLocaleString('vi-VN'),
               tech: r.technicianId || 'KTV Trung Tâm',
             }))
           );
@@ -452,13 +351,14 @@ function TCOModal({ asset, onClose }: { asset: Asset; onClose: () => void }) {
 }
 
 export default function AssetsB2B() {
-  const [assetList, setAssetList] = useState<Asset[]>(DEFAULT_ASSETS);
-  const [loading, setLoading] = useState(false);
+  const [assetList, setAssetList] = useState<Asset[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<AssetTab>('all');
   const [tcoAsset, setTcoAsset] = useState<Asset | null>(null);
   const [qrAsset, setQrAsset] = useState<Asset | null>(null);
+  const [handoverAsset, setHandoverAsset] = useState<Asset | null>(null);
   const { addToast } = useToast();
 
   const fetchAssets = async () => {
@@ -468,15 +368,15 @@ export default function AssetsB2B() {
       if (res.ok) {
         const data = await res.json();
         if (data.assets && data.assets.length > 0) {
-          const mapped: Asset[] = data.assets.map((item: any, idx: number) => {
+          const mapped: Asset[] = data.assets.map((item: Record<string, unknown>, idx: number) => {
             const isMaint = item.status === 'maintenance';
             const isDisposed = item.status === 'disposed';
             return {
-              id: item.id || `live-${idx}`,
-              name: item.name || 'Thiết bị CNTT',
-              serial: item.serialNumber || `SN-${idx + 100}`,
-              dept: item.location || 'Văn phòng chính',
-              user: item.description || 'Chung',
+              id: String(item.id || `live-${idx}`),
+              name: String(item.name || 'Thiết bị CNTT'),
+              serial: String(item.serialNumber || `SN-${idx + 100}`),
+              dept: String(item.location || 'Văn phòng chính'),
+              user: String(item.description || 'Chung'),
               status: (isDisposed ? 'disposed' : isMaint ? 'maintenance' : 'active') as Asset['status'],
               statusLabel: isDisposed ? 'Chờ thanh lý' : isMaint ? 'Bảo trì' : 'Đang sử dụng',
               statusColor: isDisposed
@@ -484,20 +384,29 @@ export default function AssetsB2B() {
                 : isMaint
                 ? 'bg-amber-100 text-amber-700'
                 : 'bg-emerald-100 text-emerald-700',
-              tcoTotal: '4,500,000',
-              tcoBreakdown: { purchase: '3,500,000', repair: '800,000', parts: '200,000' },
-              lastRepair: '15/01/2026',
-              nextMaintenance: '15/07/2026',
-              daysUntilMaintenance: 12,
+              tcoTotal: item.tcoTotal ? String(item.tcoTotal) : '—',
+              tcoBreakdown: item.tcoBreakdown || { purchase: '—', repair: '—', parts: '—' },
+              lastRepair: item.lastRepair || '—',
+              nextMaintenance: item.warrantyExpiry
+                ? new Date(String(item.warrantyExpiry)).toLocaleDateString('vi-VN')
+                : '—',
+              daysUntilMaintenance: item.warrantyExpiry
+                ? Math.max(0, Math.ceil((new Date(String(item.warrantyExpiry)).getTime() - Date.now()) / 86400000))
+                : 0,
               repairHistory: [],
-              icon: item.model?.toLowerCase().includes('print') ? Printer : Laptop,
+              icon: String(item.model || '').toLowerCase().includes('print') ? Printer : Laptop,
             };
           });
           setAssetList(mapped);
+        } else {
+          setAssetList([]);
         }
+      } else {
+        setAssetList([]);
       }
     } catch (e) {
-      console.warn('Lỗi khi tải danh sách tài sản, dùng bộ mặc định:', e);
+      console.warn('Lỗi khi tải danh sách tài sản:', e);
+      setAssetList([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -702,10 +611,20 @@ export default function AssetsB2B() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      setHandoverAsset(asset);
+                    }}
+                    title="Biên bản bàn giao số"
+                    className="flex items-center justify-center gap-1 py-1.5 px-2.5 border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-xs text-indigo-700 font-semibold transition-colors"
+                  >
+                    <FileSignature className="w-3.5 h-3.5 text-indigo-700" /> Bàn giao
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setQrAsset(asset);
                     }}
                     title="Mã QR định danh"
-                    className="flex items-center justify-center gap-1 py-1.5 px-3 border border-gray-200 bg-white hover:bg-gray-50 rounded-lg text-xs text-gray-700 transition-colors"
+                    className="flex items-center justify-center gap-1 py-1.5 px-2.5 border border-gray-200 bg-white hover:bg-gray-50 rounded-lg text-xs text-gray-700 transition-colors"
                   >
                     <QrCode className="w-3.5 h-3.5 text-gray-700" />
                   </button>
@@ -719,6 +638,19 @@ export default function AssetsB2B() {
       {/* Modals */}
       {tcoAsset && <TCOModal asset={tcoAsset} onClose={() => setTcoAsset(null)} />}
       {qrAsset && <QRModal asset={qrAsset} onClose={() => setQrAsset(null)} />}
+      {handoverAsset && (
+        <DigitalHandoverModal
+          jobId={handoverAsset.serial}
+          jobTitle={`Bàn giao thiết bị: ${handoverAsset.name}`}
+          clientName={handoverAsset.dept || 'Khách hàng Doanh nghiệp'}
+          techName="Kỹ thuật viên phụ trách"
+          onClose={() => setHandoverAsset(null)}
+          onSuccess={(handoverId) => {
+            addToast(`Đã ký & lưu biên bản bàn giao thành công (${handoverId})!`, { type: 'success' });
+            setHandoverAsset(null);
+          }}
+        />
+      )}
     </div>
   );
 }

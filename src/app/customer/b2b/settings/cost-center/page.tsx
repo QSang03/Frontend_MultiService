@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Plus, AlertTriangle, Pencil, Trash2, Building, DollarSign, Check, X } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, AlertTriangle, Pencil, Trash2, Building, DollarSign, Check, X, Loader2, Power } from 'lucide-react';
 import { useToast } from '@/components/ui';
 
 interface CostCenter {
@@ -18,14 +18,20 @@ export default function CostCenterB2B() {
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [loading, setLoading] = useState(true);
   const [alertThreshold, setAlertThreshold] = useState('80');
+  
+  // Add modal state
   const [isAdding, setIsAdding] = useState(false);
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
   const [newBudget, setNewBudget] = useState('');
+
+  // Edit modal state
+  const [editingCenter, setEditingCenter] = useState<CostCenter | null>(null);
+
   const [submitting, setSubmitting] = useState(false);
   const { addToast } = useToast();
 
-  const fetchCostCenters = async () => {
+  const fetchCostCenters = useCallback(async () => {
     try {
       const res = await fetch('/api/customer/b2b/settings/cost-center');
       const json = await res.json();
@@ -37,11 +43,11 @@ export default function CostCenterB2B() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchCostCenters();
-  }, []);
+  }, [fetchCostCenters]);
 
   const handleCreate = async () => {
     if (!newCode || !newName || !newBudget) {
@@ -77,6 +83,66 @@ export default function CostCenterB2B() {
     }
   };
 
+  const handleUpdate = async () => {
+    if (!editingCenter) return;
+    if (!editingCenter.name || editingCenter.allocatedBudget <= 0) {
+      addToast('Tên và hạn mức ngân sách phải hợp lệ', { type: 'error' });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch('/api/customer/b2b/settings/cost-center', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingCenter.id,
+          name: editingCenter.name,
+          allocatedBudget: Number(editingCenter.allocatedBudget),
+          isActive: editingCenter.isActive,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        addToast(`Cập nhật trung tâm chi phí ${editingCenter.code} thành công!`, { type: 'success' });
+        setEditingCenter(null);
+        fetchCostCenters();
+      } else {
+        addToast(json.error || 'Cập nhật thất bại', { type: 'error' });
+      }
+    } catch {
+      addToast('Lỗi kết nối máy chủ', { type: 'error' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleToggleStatus = async (cc: CostCenter) => {
+    const nextStatus = !cc.isActive;
+    try {
+      const res = await fetch('/api/customer/b2b/settings/cost-center', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: cc.id,
+          isActive: nextStatus,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        addToast(
+          nextStatus ? `Đã kích hoạt lại Cost Center ${cc.code}` : `Đã tạm dừng Cost Center ${cc.code}`,
+          { type: 'success' }
+        );
+        fetchCostCenters();
+      } else {
+        addToast(json.error || 'Lỗi cập nhật trạng thái', { type: 'error' });
+      }
+    } catch {
+      addToast('Lỗi kết nối máy chủ', { type: 'error' });
+    }
+  };
+
   const total = costCenters.reduce((sum, cc) => sum + cc.allocatedBudget, 0);
   const totalUsed = costCenters.reduce((sum, cc) => sum + cc.currentSpent, 0);
 
@@ -102,7 +168,7 @@ export default function CostCenterB2B() {
 
       {/* Modal Add */}
       {isAdding && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 space-y-4">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 space-y-4 animate-in fade-in">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-gray-900 text-sm">Thêm Trung tâm Chi phí mới</h3>
             <button onClick={() => setIsAdding(false)} className="text-gray-400 hover:text-gray-600">
@@ -111,7 +177,7 @@ export default function CostCenterB2B() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Mã phòng (Code)</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Mã phòng (Code) *</label>
               <input
                 type="text"
                 placeholder="VD: IT-02"
@@ -121,7 +187,7 @@ export default function CostCenterB2B() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Tên phòng ban</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Tên phòng ban *</label>
               <input
                 type="text"
                 placeholder="VD: Phòng Kỹ thuật Hạ tầng"
@@ -131,7 +197,7 @@ export default function CostCenterB2B() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Hạn mức ngân sách (VNĐ)</label>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Hạn mức ngân sách (VNĐ) *</label>
               <input
                 type="number"
                 placeholder="VD: 50000000"
@@ -151,61 +217,65 @@ export default function CostCenterB2B() {
             <button
               onClick={handleCreate}
               disabled={submitting}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
+              className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5"
             >
-              {submitting ? 'Đang tạo...' : 'Lưu Cost Center'}
+              {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+              Lưu Cost Center
             </button>
           </div>
         </div>
       )}
 
-      {/* Summary */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Tổng hạn mức ngân sách</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">
-            {(total / 1_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}M <span className="text-sm font-normal text-gray-500">VNĐ</span>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tổng Ngân Sách Phân Bổ</p>
+          <p className="text-2xl font-bold text-gray-900 mt-2">{total.toLocaleString('vi-VN')} đ</p>
+          <p className="text-xs text-gray-400 mt-1">{costCenters.length} trung tâm chi phí</p>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Đã Chi Tiêu Thực Tế</p>
+          <p className="text-2xl font-bold text-amber-600 mt-2">{totalUsed.toLocaleString('vi-VN')} đ</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {total > 0 ? Math.round((totalUsed / total) * 100) : 0}% tổng ngân sách
           </p>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Đã chi tiêu thực tế</p>
-          <p className="text-2xl font-bold text-blue-600 mt-1">
-            {(totalUsed / 1_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}M <span className="text-sm font-normal text-gray-500">VNĐ</span>
-          </p>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-          <p className="text-sm text-gray-500">Ngân sách còn khả dụng</p>
-          <p className="text-2xl font-bold text-emerald-600 mt-1">
-            {((total - totalUsed) / 1_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}M <span className="text-sm font-normal text-gray-500">VNĐ</span>
-          </p>
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Ngân Sách Còn Lại</p>
+          <p className="text-2xl font-bold text-emerald-600 mt-2">{(total - totalUsed).toLocaleString('vi-VN')} đ</p>
+          <p className="text-xs text-gray-400 mt-1">Khả dụng cho các yêu cầu mới</p>
         </div>
       </div>
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900 text-sm">Danh Sách Trung Tâm Chi Phí</h2>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                <th className="text-left px-4 py-3.5 text-gray-600 font-semibold">Mã</th>
-                <th className="text-left px-4 py-3.5 text-gray-600 font-semibold">Cost Center / Phòng ban</th>
-                <th className="text-right px-4 py-3.5 text-gray-600 font-semibold">Ngân sách</th>
-                <th className="text-right px-4 py-3.5 text-gray-600 font-semibold">Đã sử dụng</th>
-                <th className="text-right px-4 py-3.5 text-gray-600 font-semibold">Còn lại</th>
-                <th className="text-center px-4 py-3.5 text-gray-600 font-semibold">% Sử dụng</th>
-                <th className="px-4 py-3.5"></th>
+          <table className="w-full text-sm text-left">
+            <thead className="bg-gray-50 text-gray-500 font-medium border-b border-gray-200 text-xs">
+              <tr>
+                <th className="px-4 py-3">Mã phòng</th>
+                <th className="px-4 py-3">Tên phòng ban</th>
+                <th className="px-4 py-3 text-right">Hạn mức</th>
+                <th className="px-4 py-3 text-right">Đã chi</th>
+                <th className="px-4 py-3 text-right">Còn lại</th>
+                <th className="px-4 py-3 text-center">Tiến độ</th>
+                <th className="px-4 py-3 text-center">Trạng thái</th>
+                <th className="px-4 py-3 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-gray-500">
-                    <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                  <td colSpan={8} className="text-center py-8 text-gray-500">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto text-emerald-500" />
                   </td>
                 </tr>
               ) : costCenters.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 text-gray-500">
+                  <td colSpan={8} className="text-center py-8 text-gray-500">
                     Chưa có trung tâm chi phí nào. Nhấn &quot;Thêm Cost Center&quot; để tạo.
                   </td>
                 </tr>
@@ -217,7 +287,7 @@ export default function CostCenterB2B() {
 
                   return (
                     <tr key={cc.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3.5 font-mono font-medium text-xs text-gray-600">{cc.code}</td>
+                      <td className="px-4 py-3.5 font-mono font-bold text-xs text-gray-700">{cc.code}</td>
                       <td className="px-4 py-3.5 font-medium text-gray-900">{cc.name}</td>
                       <td className="px-4 py-3.5 text-right text-gray-700 font-medium">
                         {cc.allocatedBudget.toLocaleString('vi-VN')} đ
@@ -226,8 +296,9 @@ export default function CostCenterB2B() {
                         {cc.currentSpent.toLocaleString('vi-VN')} đ
                       </td>
                       <td
-                        className={`px-4 py-3.5 text-right font-semibold ${isWarning ? 'text-amber-600' : 'text-emerald-600'
-                          }`}
+                        className={`px-4 py-3.5 text-right font-semibold ${
+                          isWarning ? 'text-amber-600' : 'text-emerald-600'
+                        }`}
                       >
                         {remaining.toLocaleString('vi-VN')} đ
                         {isWarning && <AlertTriangle className="w-3.5 h-3.5 inline ml-1 text-amber-500" />}
@@ -236,23 +307,47 @@ export default function CostCenterB2B() {
                         <div className="flex items-center justify-center gap-2">
                           <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full ${isWarning ? 'bg-amber-500' : 'bg-emerald-500'
-                                }`}
+                              className={`h-full rounded-full ${isWarning ? 'bg-amber-500' : 'bg-emerald-500'}`}
                               style={{ width: `${Math.min(pct, 100)}%` }}
                             />
                           </div>
-                          <span
-                            className={`text-xs font-semibold ${isWarning ? 'text-amber-600' : 'text-gray-600'
-                              }`}
-                          >
+                          <span className={`text-xs font-semibold ${isWarning ? 'text-amber-600' : 'text-gray-600'}`}>
                             {pct}%
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <span className="text-xs text-emerald-600 font-medium bg-emerald-50 px-2 py-0.5 rounded">
-                          Hoạt động
+                      <td className="px-4 py-3.5 text-center">
+                        <span
+                          className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${
+                            cc.isActive !== false
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-gray-100 text-gray-500 border-gray-200'
+                          }`}
+                        >
+                          {cc.isActive !== false ? 'Hoạt động' : 'Tạm dừng'}
                         </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setEditingCenter(cc)}
+                            title="Chỉnh sửa Cost Center"
+                            className="p-1.5 text-gray-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleToggleStatus(cc)}
+                            title={cc.isActive !== false ? 'Tạm dừng Cost Center' : 'Kích hoạt lại'}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              cc.isActive !== false
+                                ? 'text-gray-400 hover:text-red-600 hover:bg-red-50'
+                                : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'
+                            }`}
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -262,6 +357,88 @@ export default function CostCenterB2B() {
           </table>
         </div>
       </div>
+
+      {/* Edit Modal */}
+      {editingCenter && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                <Pencil className="w-5 h-5 text-emerald-600" />
+                Chỉnh sửa Cost Center ({editingCenter.code})
+              </h3>
+              <button onClick={() => setEditingCenter(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Mã phòng (Không đổi)</label>
+                <input
+                  type="text"
+                  disabled
+                  value={editingCenter.code}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-gray-50 font-mono text-gray-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Tên phòng ban *</label>
+                <input
+                  type="text"
+                  value={editingCenter.name}
+                  onChange={(e) => setEditingCenter({ ...editingCenter, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Hạn mức ngân sách (VNĐ) *</label>
+                <input
+                  type="number"
+                  value={editingCenter.allocatedBudget}
+                  onChange={(e) =>
+                    setEditingCenter({ ...editingCenter, allocatedBudget: parseFloat(e.target.value) || 0 })
+                  }
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Trạng thái hoạt động</label>
+                <select
+                  value={editingCenter.isActive ? 'active' : 'inactive'}
+                  onChange={(e) => setEditingCenter({ ...editingCenter, isActive: e.target.value === 'active' })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                >
+                  <option value="active">Đang hoạt động</option>
+                  <option value="inactive">Tạm dừng áp dụng</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingCenter(null)}
+                className="px-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleUpdate}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                Lưu thay đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Alert Config */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">

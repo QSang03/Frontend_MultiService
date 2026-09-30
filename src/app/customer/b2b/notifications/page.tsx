@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,8 +8,11 @@ import {
   Wrench,
   Shield,
   Users,
+  Loader2,
+  Bell,
 } from 'lucide-react';
 import EmptyState from '@/components/ui/EmptyState';
+import internalApiClient from '@/lib/api/internal-client';
 
 interface Notification {
   id: string;
@@ -24,31 +27,176 @@ interface Notification {
   priority?: 'high' | 'normal';
 }
 
-const initialNotifications: Notification[] = [
-  { id: '1', type: 'sla', title: 'Vi phạm SLA – #T-0048', description: 'Ticket "Sửa server NAS" đã vi phạm SLA High (4h). Cần xử lý ngay.', time: '5 phút trước', read: false, icon: AlertTriangle, iconColor: 'text-red-600', bgColor: 'bg-red-50', priority: 'high' },
-  { id: '2', type: 'budget', title: 'Ngân sách Sales Dept đạt 72%', description: 'Phòng Sales đã dùng 18,000,000 / 25,000,000 VNĐ trong tháng này.', time: '30 phút trước', read: false, icon: DollarSign, iconColor: 'text-amber-600', bgColor: 'bg-amber-50' },
-  { id: '3', type: 'approval', title: 'Ticket #T-0045 đã được Admin duyệt', description: 'Yêu cầu "Nâng cấp RAM 5 máy tính" đã qua bước phê duyệt cuối.', time: '1 giờ trước', read: false, icon: CheckCircle2, iconColor: 'text-emerald-600', bgColor: 'bg-emerald-50' },
-  { id: '4', type: 'maintenance', title: 'Bảo dưỡng định kỳ – Canon CN20250001', description: 'Máy in Canon LBP 2900 đến hạn bảo dưỡng (6 tháng từ lần sửa cuối).', time: '2 giờ trước', read: true, icon: Wrench, iconColor: 'text-orange-600', bgColor: 'bg-orange-50' },
-  { id: '5', type: 'escalation', title: 'Escalation – Manager chưa duyệt 24h', description: 'Ticket #T-0054 chờ Manager duyệt hơn 24h, đã tự động chuyển lên Admin.', time: '3 giờ trước', read: true, icon: Shield, iconColor: 'text-purple-600', bgColor: 'bg-purple-50' },
-  { id: '6', type: 'member', title: 'Thành viên mới', description: 'Hoàng Mai đã được thêm vào HR Department với vai trò Staff.', time: '1 ngày trước', read: true, icon: Users, iconColor: 'text-blue-600', bgColor: 'bg-blue-50' },
-];
+interface RawTicket {
+  id: string;
+  title: string;
+  status: number;
+  priority?: string;
+  attributes?: string;
+  createdAt?: string;
+  targetResolutionAt?: string;
+}
 
 type Tab = 'all' | 'unread' | 'important';
 
 export default function NotificationsB2B() {
-  const [notifications, setNotifications] = useState<Notification[]>(initialNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('all');
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/sale/tickets?page_size=50')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && Array.isArray(data.tickets)) {
+          const list: Notification[] = [];
+          data.tickets.forEach((t: RawTicket, idx: number) => {
+            const shortId = t.id.slice(-6);
+            const timeStr = t.createdAt
+              ? new Date(t.createdAt).toLocaleDateString('vi-VN', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+              : 'Gần đây';
 
-  const filtered = notifications.filter((n) => {
-    if (activeTab === 'unread') return !n.read;
-    if (activeTab === 'important') return n.priority === 'high' || n.type === 'sla';
-    return true;
-  });
+            if (t.status === 1) {
+              list.push({
+                id: `notif-${t.id}-1`,
+                type: 'approval',
+                title: `Yêu cầu #${shortId} đang chờ phê duyệt`,
+                description: `Ticket "${t.title}" đã được khởi tạo và đang đợi cấp quản lý xét duyệt.`,
+                time: timeStr,
+                read: idx > 2,
+                icon: Shield,
+                iconColor: 'text-purple-600',
+                bgColor: 'bg-purple-50',
+                priority: 'normal',
+              });
+            } else if (t.status === 3 || t.status === 7) {
+              const isHigh = t.priority?.toLowerCase() === 'high' || t.priority?.toLowerCase() === 'critical';
+              list.push({
+                id: `notif-${t.id}-3`,
+                type: isHigh ? 'sla' : 'ticket',
+                title: isHigh ? `Cảnh báo SLA – #${shortId}` : `KTV đang xử lý #${shortId}`,
+                description: `Ticket "${t.title}" đang được đội ngũ kỹ thuật IT tiến hành xử lý.`,
+                time: timeStr,
+                read: idx > 1,
+                icon: isHigh ? AlertTriangle : Wrench,
+                iconColor: isHigh ? 'text-red-600' : 'text-blue-600',
+                bgColor: isHigh ? 'bg-red-50' : 'bg-blue-50',
+                priority: isHigh ? 'high' : 'normal',
+              });
+            } else if (t.status === 5) {
+              list.push({
+                id: `notif-${t.id}-5`,
+                type: 'approval',
+                title: `Báo giá #${shortId} đã hoàn tất`,
+                description: `Phương án kỹ thuật và chi phí cho "${t.title}" đã được gửi tới tổ chức.`,
+                time: timeStr,
+                read: false,
+                icon: DollarSign,
+                iconColor: 'text-amber-600',
+                bgColor: 'bg-amber-50',
+                priority: 'normal',
+              });
+            } else if (t.status >= 9) {
+              list.push({
+                id: `notif-${t.id}-9`,
+                type: 'completed',
+                title: `Hoàn tất yêu cầu #${shortId}`,
+                description: `Ticket "${t.title}" đã nghiệm thu và bàn giao thành công.`,
+                time: timeStr,
+                read: true,
+                icon: CheckCircle2,
+                iconColor: 'text-emerald-600',
+                bgColor: 'bg-emerald-50',
+                priority: 'normal',
+              });
+            }
+          });
 
-  const handleMarkAllRead = () => {
+          setNotifications(list);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load notifications', err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('/api/notifications/stream');
+      es.onmessage = (event) => {
+        try {
+          const notif = JSON.parse(event.data);
+          if (notif && notif.id) {
+            setNotifications((prev) => {
+              if (prev.some((p) => p.id === notif.id)) return prev;
+              const isHigh = notif.type === 'SLA' || notif.type === 'CRITICAL';
+              return [
+                {
+                  id: notif.id,
+                  type: notif.type?.toLowerCase() || 'ticket',
+                  title: notif.title || 'Thông báo mới',
+                  description: notif.content || '',
+                  time: 'Vừa xong',
+                  read: Boolean(notif.isRead),
+                  icon: isHigh ? AlertTriangle : notif.type === 'APPROVAL' ? Shield : Bell,
+                  iconColor: isHigh ? 'text-red-600' : 'text-blue-600',
+                  bgColor: isHigh ? 'bg-red-50' : 'bg-blue-50',
+                  priority: isHigh ? 'high' : 'normal',
+                },
+                ...prev,
+              ];
+            });
+          }
+        } catch {
+        }
+      };
+    } catch (e) {
+      console.error('Notification SSE connection error:', e);
+    }
+
+    return () => {
+      if (es) es.close();
+    };
+  }, []);
+
+  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
+
+  const filtered = useMemo(() => {
+    return notifications.filter((n) => {
+      if (activeTab === 'unread') return !n.read;
+      if (activeTab === 'important') return n.priority === 'high' || n.type === 'sla';
+      return true;
+    });
+  }, [notifications, activeTab]);
+
+  const handleMarkSingleRead = async (id: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    try {
+      await internalApiClient.post('/api/notifications/read', { notificationId: id });
+    } catch {
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    unreadIds.forEach((id) => {
+      internalApiClient.post('/api/notifications/read', { notificationId: id }).catch(() => {});
+    });
   };
 
   const tabs: { key: Tab; label: string; count?: number }[] = [
@@ -79,13 +227,19 @@ export default function NotificationsB2B() {
 
       {/* List */}
       <div className="space-y-2">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="py-16 text-center text-gray-400 bg-white rounded-xl border border-gray-100">
+            <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-emerald-500" />
+            Đang tải thông báo...
+          </div>
+        ) : filtered.length === 0 ? (
           <EmptyState icon="bell" title="Không có thông báo" description="Không có thông báo nào phù hợp với bộ lọc." />
         ) : filtered.map((notif) => {
           const Icon = notif.icon;
           return (
             <div
               key={notif.id}
+              onClick={() => handleMarkSingleRead(notif.id)}
               className={`flex gap-3 p-4 rounded-xl border transition-colors cursor-pointer ${
                 notif.read
                   ? 'bg-white border-gray-100 hover:bg-gray-50'

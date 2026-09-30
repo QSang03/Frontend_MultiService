@@ -13,6 +13,7 @@ interface MfaValidateProps {
 
 export default function MfaValidate({ mfaToken, onCancel }: MfaValidateProps) {
   const [code, setCode] = useState('');
+  const [isRecoveryMode, setIsRecoveryMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function MfaValidate({ mfaToken, onCancel }: MfaValidateProps) {
     setIsLoading(true);
     setError('');
 
-    const result = await validateMfaLogin(mfaToken, code);
+    const result = await validateMfaLogin(mfaToken, code.trim());
 
     if (result.success && result.user) {
       // Store user in localStorage (client-side)
@@ -32,7 +33,7 @@ export default function MfaValidate({ mfaToken, onCancel }: MfaValidateProps) {
       const dashboard = getDashboardByRole(result.user.role);
       router.push(dashboard);
     } else {
-      setError(result.error || 'Mã xác thực không đúng');
+      setError(result.error || (isRecoveryMode ? 'Mã khôi phục không hợp lệ' : 'Mã xác thực không đúng'));
       setCode('');
     }
 
@@ -42,9 +43,13 @@ export default function MfaValidate({ mfaToken, onCancel }: MfaValidateProps) {
   return (
     <div className="w-full max-w-md mx-auto space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-bold">Xác thực 2 yếu tố</h2>
+        <h2 className="text-2xl font-bold">
+          {isRecoveryMode ? 'Khôi phục quyền truy cập' : 'Xác thực 2 yếu tố'}
+        </h2>
         <p className="text-gray-600 mt-2">
-          Nhập mã 6 chữ số từ ứng dụng xác thực của bạn
+          {isRecoveryMode
+            ? 'Nhập mã khôi phục (Recovery Code) bạn đã lưu khi thiết lập 2FA'
+            : 'Nhập mã 6 chữ số từ ứng dụng xác thực của bạn'}
         </p>
       </div>
 
@@ -57,30 +62,32 @@ export default function MfaValidate({ mfaToken, onCancel }: MfaValidateProps) {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium mb-2">
-            Mã xác thực
+            {isRecoveryMode ? 'Mã khôi phục (Recovery Code)' : 'Mã xác thực'}
           </label>
           <Input
             type="text"
             value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="000000"
-            maxLength={6}
+            onChange={(e) => setCode(isRecoveryMode ? e.target.value : e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder={isRecoveryMode ? 'Nhập mã khôi phục...' : '000000'}
+            maxLength={isRecoveryMode ? 32 : 6}
             required
             autoFocus
-            className="text-center text-2xl tracking-widest"
+            className={isRecoveryMode ? 'text-center text-lg' : 'text-center text-2xl tracking-widest'}
           />
-          <p className="text-xs text-gray-500 mt-1">
-            Mã có hiệu lực trong 30 giây
-          </p>
+          {!isRecoveryMode && (
+            <p className="text-xs text-gray-500 mt-1">
+              Mã có hiệu lực trong 30 giây
+            </p>
+          )}
         </div>
 
         <div className="space-y-2">
           <Button
             type="submit"
-            disabled={isLoading || code.length !== 6}
+            disabled={isLoading || (!isRecoveryMode && code.length !== 6) || (isRecoveryMode && !code.trim())}
             className="w-full"
           >
-            {isLoading ? 'Đang xác thực...' : 'Xác nhận'}
+            {isLoading ? 'Đang xác thực...' : isRecoveryMode ? 'Đăng nhập bằng mã khôi phục' : 'Xác nhận'}
           </Button>
 
           {onCancel && (
@@ -97,16 +104,17 @@ export default function MfaValidate({ mfaToken, onCancel }: MfaValidateProps) {
       </form>
 
       <div className="text-center text-sm text-gray-600">
-        <p>Không nhận được mã?</p>
+        <p>{isRecoveryMode ? 'Đã tìm lại ứng dụng xác thực?' : 'Không nhận được mã?'}</p>
         <button
           type="button"
-          className="text-blue-600 hover:underline mt-1"
+          className="text-blue-600 hover:underline mt-1 font-medium"
           onClick={() => {
-            // TODO: Implement recovery code flow
-            alert('Chức năng recovery code đang phát triển');
+            setIsRecoveryMode(!isRecoveryMode);
+            setError('');
+            setCode('');
           }}
         >
-          Sử dụng mã khôi phục
+          {isRecoveryMode ? 'Quay lại nhập mã Authenticator' : 'Sử dụng mã khôi phục'}
         </button>
       </div>
     </div>

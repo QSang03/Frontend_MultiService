@@ -62,58 +62,7 @@ let slaStopClockRules: SlaStopClockRule[] = [
   { id: '4', name: 'Auto-Close Resolution (Tự động đóng ticket)', label: 'AUTO CLOSE', days: 3, description: 'Tự động chuyển Completed thành Closed sau 3 ngày nếu khách không phản hồi.' },
 ];
 
-let inMemoryAuditLogs: AuditLogItem[] = [
-  {
-    id: 'LOG-00025',
-    type: 'TENANT_PROVISION',
-    description: 'Cấp phát B2B Tenant mới qua gRPC: StartUp Hub Inc',
-    before: 'null',
-    after: '{ db: "tenant_startuphub", plan: "GROWTH" }',
-    actor: 'admin@multiservice.io',
-    timestamp: '2026-02-28 14:22:00',
-    time: '5 phút trước',
-  },
-  {
-    id: 'LOG-00024',
-    type: 'FINANCE_RISK_FUND',
-    description: 'Cập nhật tỷ lệ trích quỹ rủi ro từ 5.0% lên 5.5%',
-    before: '5.0%',
-    after: '5.5%',
-    actor: 'admin@multiservice.io',
-    timestamp: '2026-02-28 12:10:00',
-    time: '2 giờ trước',
-  },
-  {
-    id: 'LOG-00023',
-    type: 'PRICE_UPDATE',
-    description: 'Điều chỉnh ma trận K-Rule: Giờ cao điểm cuối tuần x1.3',
-    before: 'multiplier: 1.20',
-    after: 'multiplier: 1.30',
-    actor: 'sale.manager@multiservice.io',
-    timestamp: '2026-02-27 18:30:00',
-    time: 'Hôm qua',
-  },
-  {
-    id: 'LOG-00022',
-    type: 'ROLE_GRANT',
-    description: 'Cấp quyền SCOPE_FINANCE_READ cho Quản trị viên chi nhánh',
-    before: 'ROLE_TECH_LEAD',
-    after: 'ROLE_FINANCE_ADMIN',
-    actor: 'admin@multiservice.io',
-    timestamp: '2026-02-26 09:15:00',
-    time: '2 ngày trước',
-  },
-  {
-    id: 'LOG-00021',
-    type: 'RMA_SERIAL_SWAP',
-    description: 'Ghi nhận tráo Serial mới RMA Switch Juniper từ FPT Synnex',
-    before: 'SN-JUN-8812',
-    after: 'SN-JUN-9934',
-    actor: 'warehouse@multiservice.io',
-    timestamp: '2026-02-25 15:45:00',
-    time: '3 ngày trước',
-  },
-];
+const inMemoryAuditLogs: AuditLogItem[] = [];
 
 export async function GET(request: NextRequest) {
   try {
@@ -125,7 +74,7 @@ export async function GET(request: NextRequest) {
       const usersRes = await protoAdminListUsers({ pageSize: 50 });
       if (usersRes.success && usersRes.response) {
         const rawUsers = usersRes.response.users || [];
-        const techUsers = rawUsers.filter((u: any) => {
+        const techUsers = rawUsers.filter((u: Record<string, unknown>) => {
           const role = String(u.role || '').toLowerCase();
           return role.includes('tech') || role.includes('field') || role.includes('3');
         });
@@ -139,7 +88,7 @@ export async function GET(request: NextRequest) {
           { lat: 10.7981, lng: 106.6631, area: 'Tân Bình - Sân bay TSN' },
         ];
 
-        technicians = techUsers.slice(0, 5).map((u: any, idx: number) => {
+        technicians = techUsers.slice(0, 5).map((u: Record<string, unknown>, idx: number) => {
           const coord = baseCoords[idx % baseCoords.length];
           const statuses: Array<'available' | 'critical' | 'on_site' | 'busy'> = ['available', 'on_site', 'busy', 'critical', 'available'];
           const status = statuses[idx % statuses.length];
@@ -147,27 +96,19 @@ export async function GET(request: NextRequest) {
 
           return {
             id: `T${idx + 1}`,
-            name: u.fullName || `KTV ${idx + 1}`,
-            phone: u.phone || '0901234567',
+            name: String(u.fullName || u.name || `KTV ${idx + 1}`),
+            phone: String(u.phone || ''),
             lat: coord.lat + (Math.random() - 0.5) * 0.005,
             lng: coord.lng + (Math.random() - 0.5) * 0.005,
             status,
             color,
-            currentTicket: status !== 'available' ? `#T-${9920 + idx}` : undefined,
+            currentTicket: undefined,
             assignedArea: coord.area,
           };
         });
       }
     } catch (e) {
-      console.warn('[System Settings API] Could not load tech users, using defaults:', e);
-    }
-
-    if (technicians.length === 0) {
-      technicians = [
-        { id: 'T1', name: 'Nguyễn Văn Minh (KTV Phần cứng)', lat: 10.7769, lng: 106.7009, status: 'available', color: 'green', assignedArea: 'Quận 1 - Bến Nghé' },
-        { id: 'T2', name: 'Trần Hoàng Long (KTV Mạng)', lat: 10.7825, lng: 106.6995, status: 'critical', color: 'red', currentTicket: '#T-9925', assignedArea: 'Quận 3 - Võ Thị Sáu' },
-        { id: 'T3', name: 'Lê Quốc Bảo (KTV Hệ thống)', lat: 10.7723, lng: 106.7112, status: 'on_site', color: 'blue', currentTicket: '#T-9926', assignedArea: 'Bình Thạnh' },
-      ];
+      console.warn('[System Settings API] Could not load tech users:', e);
     }
 
     // 2. Fetch Pending Dispatch Tickets
@@ -175,11 +116,11 @@ export async function GET(request: NextRequest) {
     try {
       const ticketRes = await protoListTickets({ pageSize: 30 });
       if (ticketRes.success && ticketRes.response) {
-        const rawTickets = (ticketRes.response as any).tickets || [];
+        const rawTickets = ((ticketRes.response as unknown as Record<string, unknown>).tickets as Record<string, unknown>[]) || [];
         pendingDispatch = rawTickets
-          .filter((t: any) => !t.assigneeId && !t.assignee_id)
+          .filter((t: Record<string, unknown>) => !t.assigneeId && !t.assignee_id && String(t.status || '').toLowerCase() !== 'closed' && String(t.status || '').toLowerCase() !== 'resolved')
           .slice(0, 5)
-          .map((t: any, idx: number) => {
+          .map((t: Record<string, unknown>, idx: number) => {
             const priorityNum = Number(t.priority || 0);
             const priority: 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL' =
               priorityNum >= 4 ? 'CRITICAL' : priorityNum === 3 ? 'HIGH' : priorityNum === 1 ? 'LOW' : 'NORMAL';
@@ -188,27 +129,26 @@ export async function GET(request: NextRequest) {
               priority === 'CRITICAL' ? 'bg-red-100 text-red-700' :
               priority === 'HIGH' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700';
 
+            const createdRecord = t.createdAt as Record<string, unknown> | undefined;
+            const createdSec = Number(createdRecord?.seconds || 0);
+            const createdAt = createdSec 
+              ? Math.max(1, Math.round((Date.now() / 1000 - createdSec) / 60))
+              : 1;
+
+            const idStr = String(t.id || `pending-${idx}`);
             return {
-              id: t.id || `pending-${idx}`,
-              ticketCode: t.ticketCode || `#T-${9925 + idx}`,
-              location: 'Khu vực Trung tâm TP.HCM',
-              title: t.title || 'Sự cố cần KTV xử lý gấp',
+              id: idStr,
+              ticketCode: String(t.ticketCode || t.ticket_code || `#T-${t.id ? String(t.id).slice(0, 6) : idx}`),
+              location: String(t.address || t.location || 'Địa chỉ khách hàng'),
+              title: String(t.title || 'Sự cố cần KTV xử lý gấp'),
               priority,
               priorityColor,
-              timeAgo: `${15 + idx * 10} phút trước`,
+              timeAgo: `${createdAt} phút trước`,
             };
           });
       }
     } catch (e) {
       console.warn('[System Settings API] Could not load pending tickets:', e);
-    }
-
-    if (pendingDispatch.length === 0) {
-      pendingDispatch = [
-        { id: '1', ticketCode: '#T-9925', location: 'Server Room - Tòa nhà Bitexco, Q.1', title: 'Máy chủ tắt nguồn đột ngột (Nghi nguồn hỏng)', priority: 'CRITICAL', priorityColor: 'bg-red-100 text-red-700', timeAgo: '12 phút trước' },
-        { id: '2', ticketCode: '#T-9926', location: 'Văn phòng Công ty Logistics, Q.3', title: 'Switch mạng phân vùng tầng 4 mất kết nối toàn bộ', priority: 'HIGH', priorityColor: 'bg-orange-100 text-orange-700', timeAgo: '28 phút trước' },
-        { id: '3', ticketCode: '#T-9927', location: 'Kho Tổng Hàng Hóa, Tân Bình', title: 'Máy in hóa đơn vạch mã không nhận tín hiệu LAN', priority: 'NORMAL', priorityColor: 'bg-blue-100 text-blue-700', timeAgo: '45 phút trước' },
-      ];
     }
 
     const latency = Math.max(15, Date.now() - startTime);
@@ -220,9 +160,9 @@ export async function GET(request: NextRequest) {
       slaRules: slaStopClockRules,
       auditLogs: inMemoryAuditLogs,
       notificationChannels: [
-        { id: '1', name: 'Twilio (SMS Gateway)', type: 'sms', usage: '3,850', quota: '5,000 SMS', status: 'Connected', statusColor: 'bg-green-100 text-green-700' },
-        { id: '2', name: 'SendGrid (Hệ thống Email)', type: 'email', usage: '12,400', quota: '25,000 Emails', status: 'Connected', statusColor: 'bg-green-100 text-green-700' },
-        { id: '3', name: 'Firebase Cloud Messaging (App Push)', type: 'push', usage: '~1,200', quota: 'Không giới hạn', status: 'Connected', statusColor: 'bg-green-100 text-green-700' },
+        { id: '1', name: 'Twilio (SMS Gateway)', type: 'sms', usage: '0', quota: 'SMS OTP & Alert', status: 'Connected', statusColor: 'bg-green-100 text-green-700' },
+        { id: '2', name: 'SendGrid (Hệ thống Email)', type: 'email', usage: '0', quota: 'Email Transactional', status: 'Connected', statusColor: 'bg-green-100 text-green-700' },
+        { id: '3', name: 'Firebase Cloud Messaging (App Push)', type: 'push', usage: '0', quota: 'App Push', status: 'Connected', statusColor: 'bg-green-100 text-green-700' },
       ],
       infraHealth: [
         { id: '1', name: 'API Gateway (Next.js & Connect)', status: 'Operational', statusColor: 'text-green-600', latency: `${latency}ms` },
@@ -266,7 +206,7 @@ export async function POST(request: NextRequest) {
           type: 'SLA_POLICY_UPDATE',
           description: 'Cập nhật chính sách Stop-the-Clock & Auto-Close cho hệ thống SLA',
           before: 'Default Config',
-          after: JSON.stringify(rules.map((r: any) => `${r.name}: ${r.days}d`)),
+          after: JSON.stringify(rules.map((r: { name?: string; days?: number }) => `${r.name}: ${r.days}d`)),
           actor: 'admin@multiservice.io',
           timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
           time: 'Vừa xong',

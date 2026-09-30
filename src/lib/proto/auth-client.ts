@@ -47,6 +47,8 @@ import {
   ResetPasswordResponse,
   DeleteAccountRequestSchema,
   DeleteAccountResponse,
+  RegisterServiceProviderRequestSchema,
+  RegisterServiceProviderResponse,
 } from '@buf/nkc_multiservice.bufbuild_es/multiservice/auth/v1/auth_pb.js';
 
 // Backend URL for raw gRPC over HTTP/2 (server-side).
@@ -516,6 +518,28 @@ export async function protoDeleteAccount(password: string): Promise<{ success: b
 }
 
 /**
- * Delete account (requires auth)
+ * Register Service Provider (requires auth)
  */
-
+export async function protoRegisterServiceProvider(payload: {
+  companyName: string;
+  requestedPlanId: string;
+  website?: string;
+  description?: string;
+}): Promise<{ success: boolean; response?: RegisterServiceProviderResponse; error?: string }> {
+  try {
+    const response = await executeWithRefresh(async () => {
+      const client = await createAuthenticatedClient();
+      const request = create(RegisterServiceProviderRequestSchema, {
+        companyName: payload.companyName,
+        requestedPlanId: payload.requestedPlanId,
+        website: payload.website || '',
+        description: payload.description || '',
+      });
+      return await client.registerServiceProvider(request);
+    });
+    return { success: true, response };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Register service provider failed';
+    return { success: false, error: message };
+  }
+}

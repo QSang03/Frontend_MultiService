@@ -64,26 +64,7 @@ export default function AssetLifecycleTracker() {
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load initial asset list
-  const loadAssets = useCallback(async (query = '') => {
-    setIsSearching(true);
-    try {
-      const res = await internalApiClient.get<{ assets: AssetDetail[] }>('/api/admin/assets', {
-        params: { search: query },
-      });
-      const list = res.data?.assets || [];
-      setAssets(list);
-      if (list.length > 0 && !selectedAsset) {
-        selectAsset(list[0].id);
-      }
-    } catch {
-      // Fallback
-    } finally {
-      setIsSearching(false);
-    }
-  }, []);
-
-  const selectAsset = async (assetId: string) => {
+  const selectAsset = useCallback(async (assetId: string) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -104,7 +85,26 @@ export default function AssetLifecycleTracker() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  // Load initial asset list
+  const loadAssets = useCallback(async (query = '') => {
+    setIsSearching(true);
+    try {
+      const res = await internalApiClient.get<{ assets: AssetDetail[] }>('/api/admin/assets', {
+        params: { search: query },
+      });
+      const list = res.data?.assets || [];
+      setAssets(list);
+      if (list.length > 0 && !selectedAsset) {
+        selectAsset(list[0].id);
+      }
+    } catch {
+      // Fallback
+    } finally {
+      setIsSearching(false);
+    }
+  }, [selectAsset, selectedAsset]);
 
   useEffect(() => {
     loadAssets();

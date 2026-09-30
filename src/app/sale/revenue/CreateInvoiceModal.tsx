@@ -29,6 +29,30 @@ export default function CreateInvoiceModal({ open, onClose, onSuccess }: CreateI
   const [isLoading, setIsLoading] = useState(false);
   const [amountError, setAmountError] = useState('');
 
+  const [contracts, setContracts] = useState<{ id: string; title: string; customerName: string; totalValue?: number }[]>([]);
+  const [fetchingContracts, setFetchingContracts] = useState(false);
+
+  React.useEffect(() => {
+    if (open) {
+      setFetchingContracts(true);
+      fetch('/api/contracts?pageSize=50')
+        .then((r) => r.json())
+        .then((data) => {
+          const list = data?.data?.contracts || data?.contracts || [];
+          setContracts(
+            list.map((c: { id: string; title?: string; customerName?: string; customerId?: string; totalValue?: number }) => ({
+              id: c.id,
+              title: c.title || 'Hợp đồng dịch vụ',
+              customerName: c.customerName || c.customerId || 'Khách hàng',
+              totalValue: c.totalValue,
+            }))
+          );
+        })
+        .catch(() => setContracts([]))
+        .finally(() => setFetchingContracts(false));
+    }
+  }, [open]);
+
   if (!open) return null;
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,9 +77,9 @@ export default function CreateInvoiceModal({ open, onClose, onSuccess }: CreateI
       return;
     }
     setIsLoading(true);
-    setTimeout(() => {
+    try {
       const newInvoice: Invoice = {
-        id: `INV-${new Date().getFullYear()}-${Math.floor(Math.random() * 900) + 100}`,
+        id: `INV-${new Date().getFullYear()}-${Date.now().toString().slice(-4)}`,
         client: formData.contractId || 'Khách hàng',
         amount: parsed,
         dueDate: formData.dueDate,
@@ -63,11 +87,12 @@ export default function CreateInvoiceModal({ open, onClose, onSuccess }: CreateI
         method: formData.method,
       };
       onSuccess(newInvoice);
-      setIsLoading(false);
       onClose();
       setFormData({ contractId: '', amount: '', dueDate: '', method: 'bank_transfer' });
       setAmountError('');
-    }, 1000);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -101,13 +126,27 @@ export default function CreateInvoiceModal({ open, onClose, onSuccess }: CreateI
             <select
               className="w-full h-10 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               value={formData.contractId}
-              onChange={(e) => setFormData({ ...formData, contractId: e.target.value })}
+              onChange={(e) => {
+                const selected = contracts.find((c) => `${c.title} (${c.customerName})` === e.target.value);
+                setFormData({
+                  ...formData,
+                  contractId: e.target.value,
+                  amount: selected?.totalValue ? String(selected.totalValue) : formData.amount,
+                });
+              }}
               required
             >
-              <option value="">Chọn hợp đồng hoặc báo giá...</option>
-              <option value="TechSolutions Ltd">Q-2024-001 (TechSolutions Ltd)</option>
-              <option value="Nguyen Van A">Q-2024-002 (Nguyễn Văn A)</option>
-              <option value="StartUp Alpha">Q-2024-003 (StartUp Alpha)</option>
+              <option value="">
+                {fetchingContracts ? 'Đang tải danh sách hợp đồng...' : 'Chọn hợp đồng hoặc báo giá...'}
+              </option>
+              {contracts.map((ctr) => (
+                <option key={ctr.id} value={`${ctr.title} (${ctr.customerName})`}>
+                  {ctr.title} - {ctr.customerName} (#{ctr.id.slice(0, 8)})
+                </option>
+              ))}
+              {!fetchingContracts && contracts.length === 0 && (
+                <option value="Hợp đồng vãng lai">Hợp đồng dịch vụ tự do (Không theo mẫu)</option>
+              )}
             </select>
           </div>
 

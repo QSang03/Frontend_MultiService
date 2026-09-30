@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { X, CheckCircle2, PenLine, RotateCcw, Loader2, FileSignature } from 'lucide-react';
@@ -27,6 +27,7 @@ export default function DigitalHandoverModal({
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
 
   // Setup canvas
@@ -121,18 +122,14 @@ export default function DigitalHandoverModal({
       });
 
       const data = await res.json();
-      if (data.success || data.handoverId) {
-        setSubmitted(true);
-        setTimeout(() => onSuccess(data.handoverId ?? 'LOCAL-' + Date.now()), 1500);
-      } else {
-        // Fallback: treat as local success for demo
-        setSubmitted(true);
-        setTimeout(() => onSuccess('DEMO-' + Date.now()), 1500);
+      if (!res.ok || data.error || (!data.success && !data.handoverId)) {
+        throw new Error(data.error || 'Biên bản nghiệm thu chưa được lưu');
       }
-    } catch {
-      // Offline mode: still mark as success
+
       setSubmitted(true);
-      setTimeout(() => onSuccess('OFFLINE-' + Date.now()), 1500);
+      setTimeout(() => onSuccess(data.handoverId ?? `HND-${jobId.slice(0, 8)}`), 1200);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Lỗi kết nối khi gửi biên bản nghiệm thu');
     } finally {
       setSubmitting(false);
     }
@@ -172,6 +169,11 @@ export default function DigitalHandoverModal({
           </div>
         ) : (
           <div className="px-6 pb-6 space-y-4">
+            {errorMsg && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-600">
+                {errorMsg}
+              </div>
+            )}
             {/* Job info */}
             <div className="bg-gray-50 rounded-xl p-4 space-y-2">
               <div className="flex justify-between text-sm">

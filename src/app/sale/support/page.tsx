@@ -602,7 +602,7 @@ export default function SupportTrackingPage() {
 
     return {
       id,
-      code: id ? `TICK-${id.slice(-6).toUpperCase()}` : `TICK-${Math.floor(10000 + Math.random() * 90000)}`,
+      code: id ? `TICK-${id.slice(-6).toUpperCase()}` : 'TICK-NEW',
       orgId: raw.orgId == null ? undefined : String(raw.orgId),
       creatorId: raw.creatorId == null ? undefined : String(raw.creatorId),
       assignedTechId: raw.assignedTechId == null ? undefined : String(raw.assignedTechId),
@@ -1529,7 +1529,8 @@ export default function SupportTrackingPage() {
 
       const createJson = await createRes.json();
       if (!createRes.ok) {
-        setFlowMessage(createJson?.error || 'CreateTicket thất bại. Đã fallback local ticket.');
+        setFlowMessage(createJson?.error || 'Tạo Ticket thất bại. Vui lòng thử lại.');
+        return;
       }
 
       const responseTicket = createJson?.ticket as {
@@ -1547,7 +1548,7 @@ export default function SupportTrackingPage() {
 
       const newTicket: Ticket = {
         id: apiId || `tmp-${Date.now()}`,
-        code: apiId ? `TICK-${apiId.slice(-6).toUpperCase()}` : `TICK-${Math.floor(10000 + Math.random() * 90000)}`,
+        code: apiId ? `TICK-${apiId.slice(-6).toUpperCase()}` : 'TICK-DRAFT',
         orgId: responseTicket?.orgId,
         categoryId: responseTicket?.categoryId ?? selectedCategoryId,
         serviceId: responseTicket?.serviceId ?? selectedServiceId,
@@ -1565,40 +1566,12 @@ export default function SupportTrackingPage() {
       const newTicketList = [newTicket, ...tickets];
       setTickets(newTicketList);
       setSelectedTicket(newTicket);
-      if (createRes.ok) {
-        setFlowMessage('CreateTicket thành công ở trạng thái DRAFT.');
-      }
+      setFlowMessage('CreateTicket thành công ở trạng thái DRAFT.');
       setIsCreateModalOpen(false);
-      return;
-    } catch {
-      setFlowMessage('Lỗi kết nối CreateTicket. Đã fallback local ticket.');
+    } catch (e) {
+      console.error('Lỗi khi tạo ticket:', e);
+      setFlowMessage('Lỗi kết nối máy chủ khi tạo Ticket. Vui lòng thử lại.');
     }
-
-    const newId = (tickets.length + 1).toString();
-    const newTicket: Ticket = {
-      id: newId,
-      code: `TICK-${Math.floor(10000 + Math.random() * 90000)}`, // Random 5-digit code for variety
-      orgId: contextOwnerId || undefined,
-      title: data.subject,
-      client: data.client,
-      status: 'DRAFT',
-      priority: data.priority.split(' ')[0] as Ticket['priority'], // Extract 'Critical' from 'Critical (1h)'
-      attributes: JSON.stringify({
-        source: 'sale_support',
-        client: data.client,
-        category_id: selectedCategoryId,
-        service_id: selectedServiceId || undefined,
-        owner_id: contextOwnerId || undefined,
-      }),
-      date: new Date().toISOString().split('T')[0],
-      // Approximate due time logic based on priority, simplified
-      dueTime: '12:00', 
-    };
-
-    const newTicketList = [newTicket, ...tickets];
-    setTickets(newTicketList);
-    setSelectedTicket(newTicket);
-    setIsCreateModalOpen(false);
   };
 
   const handlePreviewSla = async () => {

@@ -1,26 +1,80 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
-import { protoApproveTicket, protoListTickets } from '@/lib/proto/ticket-client';
-
-// In-memory approvals for demo/fallback when proto service is offline
-const memoryApprovals = [
-  { id: 'app-1', ticketId: 'T-0055', title: 'Nâng cấp RAM 5 máy tính phòng Dev', creator: 'Nguyễn Văn B', dept: 'IT', amount: 5000000, costCenter: 'IT Department', sla: 'Medium (24h)', remainingBudget: 8500000, date: '14/03', level: 1, status: 'PENDING_MANAGER' },
-  { id: 'app-2', ticketId: 'T-0057', title: 'Mua license Microsoft 365 (10 seats)', creator: 'Lê Thị D', dept: 'HR', amount: 3200000, costCenter: 'HR & Admin', sla: 'Low (72h)', remainingBudget: 7200000, date: '15/03', level: 1, status: 'PENDING_MANAGER' },
-  { id: 'app-3', ticketId: 'T-0058', title: 'Bảo trì máy chủ Core hàng quý', creator: 'Phạm Hải', dept: 'IT', amount: 12000000, costCenter: 'IT Department', sla: 'Medium (24h)', remainingBudget: 8500000, date: '15/03', level: 2, status: 'PENDING_ADMIN' },
-];
+import { NextRequest, NextResponse } from 'next/server';
+import { protoApproveTicket, protoRejectTicket, protoListTickets } from '@/lib/proto/ticket-client';
+import { listCostCenters } from '@/lib/proto/tenant-client';
 
 export async function GET() {
   try {
-    // Attempt proto list with pending approval status
-    const protoRes = await protoListTickets({ status: 2 });
+    // List tickets pending approval and cost centers concurrently
+    const [protoRes, costCenters] = await Promise.all([
+      protoListTickets({ status: 1, pageSize: 50 }).catch(() => ({ success: false, response: null })),
+      listCostCenters('org-b2b-default', false).catch(() => []),
+    ]);
+
+    let tickets: Record<string, unknown>[] = [];
+
     if (protoRes.success && (protoRes.response as Record<string, unknown>)?.tickets) {
-      return NextResponse.json({
-        success: true,
-        data: (protoRes.response as Record<string, unknown>).tickets,
-      });
+      tickets = (protoRes.response as Record<string, unknown>).tickets as Record<string, unknown>[];
+    } else {
+      // Also try listing general tickets
+      const allRes = await protoListTickets({ pageSize: 50 }).catch(() => ({ success: false, response: null }));
+      if (allRes.success && (allRes.response as Record<string, unknown>)?.tickets) {
+        const allTickets = (allRes.response as Record<string, unknown>).tickets as Record<string, unknown>[];
+        // Filter tickets that need approval (status <= 2)
+        tickets = allTickets.filter((t) => Number(t.status) <= 2);
+      }
     }
-    return NextResponse.json({ success: true, data: memoryApprovals });
+
+    if (tickets.length > 0) {
+      const realApprovals = tickets.map((t, idx) => {
+        const priorityNum = Number(t.priority || 2);
+        const slaText =
+          priorityNum >= 4
+            ? 'Critical (4h)'
+            : priorityNum === 3
+            ? 'High (8h)'
+            : priorityNum === 2
+            ? 'Medium (24h)'
+            : 'Low (72h)';
+        const idStr = String(t.id || '');
+
+        // Extract real cost from ticket attributes or estimatedCost
+        let ticketAmount = 0;
+        if (t.estimatedCost) {
+          ticketAmount = Number(t.estimatedCost) || 0;
+        } else if (t.attributes) {
+          try {
+            const parsed = typeof t.attributes === 'string' ? JSON.parse(t.attributes) : (t.attributes as Record<string, unknown>);
+            ticketAmount = Number(parsed.amount || parsed.estimatedPrice || parsed.totalPrice) || 0;
+          } catch {}
+        }
+
+        // Match cost center
+        const cc = costCenters.find((c) => c.id === t.costCenterId || c.code === t.costCenterCode) || costCenters[0];
+        const remainingBudget = cc ? Math.max(0, cc.allocatedBudget - cc.currentSpent) : 0;
+        const costCenterName = cc ? `${cc.code} - ${cc.name}` : String(t.costCenterName || 'Trung tâm Chi phí IT');
+
+        return {
+          id: idStr || `app-${idx + 1}`,
+          ticketId: idStr,
+          title: String(t.title || 'Yêu cầu dịch vụ CNTT'),
+          creator: String(t.creatorName || t.creatorEmail || 'Nhân viên'),
+          dept: String(t.departmentName || 'Phòng Kỹ thuật & Vận hành'),
+          amount: ticketAmount,
+          costCenter: costCenterName,
+          sla: slaText,
+          remainingBudget: remainingBudget,
+          date: t.createdAt ? new Date(String(t.createdAt)).toLocaleDateString('vi-VN') : 'Hôm nay',
+          level: priorityNum >= 3 ? 2 : 1,
+          status: 'PENDING_APPROVAL',
+        };
+      });
+
+      return NextResponse.json({ success: true, data: realApprovals });
+    }
+
+    return NextResponse.json({ success: true, data: [] });
   } catch {
-    return NextResponse.json({ success: true, data: memoryApprovals });
+    return NextResponse.json({ success: true, data: [] });
   }
 }
 
@@ -34,20 +88,22 @@ export async function POST(request: NextRequest) {
 
     if (action === 'approve') {
       const res = await protoApproveTicket({ ticketId });
-      // Remove from memory approvals if present
-      const idx = memoryApprovals.findIndex((a) => a.ticketId === ticketId);
-      if (idx !== -1) memoryApprovals.splice(idx, 1);
-
+      if (!res.success) {
+        return NextResponse.json({ success: false, error: res.error || 'Duyệt ticket thất bại' }, { status: 400 });
+      }
       return NextResponse.json({
         success: true,
         message: `Đã duyệt ticket #${ticketId}${note ? ` (Ghi chú: ${note})` : ''}`,
         protoResult: res,
       });
     } else {
-      // Reject
-      const idx = memoryApprovals.findIndex((a) => a.ticketId === ticketId);
-      if (idx !== -1) memoryApprovals.splice(idx, 1);
-
+      const res = await protoRejectTicket({
+        ticketId,
+        reason: note || 'Từ chối bởi cấp quản lý B2B',
+      });
+      if (!res.success) {
+        return NextResponse.json({ success: false, error: res.error || 'Từ chối ticket thất bại' }, { status: 400 });
+      }
       return NextResponse.json({
         success: true,
         message: `Đã từ chối ticket #${ticketId}${note ? ` (Lý do: ${note})` : ''}`,

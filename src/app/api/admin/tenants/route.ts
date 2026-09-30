@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { protoAdminListOrganizations } from '@/lib/proto/admin-client';
-import { protoProvisionTenant, protoGetTenantStatus } from '@/lib/proto/tenant-client';
+import { protoAdminListOrganizations, protoAdminUpdateTenantConfig } from '@/lib/proto/admin-client';
+import { protoProvisionTenant, protoGetTenantStatus, protoDeleteTenant } from '@/lib/proto/tenant-client';
 
 export interface B2BTenantDto {
   id: string;
@@ -61,10 +61,10 @@ export async function GET(request: NextRequest) {
       const maxStorage = plan === 'ENTERPRISE' ? 1000 : plan === 'GROWTH' ? 500 : 100;
       const maxTickets = plan === 'ENTERPRISE' ? 5000 : plan === 'GROWTH' ? 2000 : 500;
 
-      // Realistic usage simulated from index and tier
-      const currentUsers = Math.min(maxUsers, 5 + (index * 12) % (maxUsers - 5));
-      const currentStorage = Math.min(maxStorage, 25 + (index * 85) % (maxStorage - 25));
-      const currentTickets = Math.min(maxTickets, 50 + (index * 320) % (maxTickets - 50));
+      const configRecord = config as unknown as Record<string, unknown> | undefined;
+      const currentUsers = Number(configRecord?.currentUsers ?? 1);
+      const currentStorage = Number(configRecord?.currentStorage ?? 0);
+      const currentTickets = Number(configRecord?.currentTickets ?? 0);
 
       const statusStr = (config?.status || 'ACTIVE').toUpperCase();
       const status: 'ACTIVE' | 'PROVISIONING' | 'SUSPENDED' = 
@@ -131,6 +131,63 @@ export async function POST(request: NextRequest) {
     }, { status: 201 });
   } catch (error) {
     console.error('[Tenants API] POST error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const orgId = searchParams.get('orgId') || searchParams.get('id');
+
+    if (!orgId) {
+      return NextResponse.json({ error: 'Thiếu định danh Tenant (orgId)' }, { status: 400 });
+    }
+
+    const result = await protoDeleteTenant(orgId);
+    if (!result.success) {
+      return NextResponse.json({ error: result.error || 'Failed to delete tenant' }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Đã thu hồi và xóa tenant ${orgId} thành công`,
+    });
+  } catch (error) {
+    console.error('[Tenants API] DELETE error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { orgId, maxUsers, maxStorage, maxTickets, status, domainValue } = body;
+
+    if (!orgId) {
+      return NextResponse.json({ error: 'Thiếu mã tổ chức (orgId)' }, { status: 400 });
+    }
+
+    const result = await protoAdminUpdateTenantConfig({
+      orgId,
+      maxUsers: maxUsers !== undefined ? Number(maxUsers) : undefined,
+      maxStorage: maxStorage !== undefined ? Number(maxStorage) : undefined,
+      maxTickets: maxTickets !== undefined ? Number(maxTickets) : undefined,
+      status: status !== undefined ? String(status) : undefined,
+      domainValue: domainValue !== undefined ? String(domainValue) : undefined,
+    });
+
+    if (!result.success) {
+      return NextResponse.json({ error: result.error || 'Cập nhật cấu hình Tenant thất bại' }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: 'Cập nhật quota và trạng thái Tenant thành công',
+      data: result.response,
+    });
+  } catch (error) {
+    console.error('[Tenants API] PUT error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft, MapPin, AlertTriangle, Calendar, Upload, Info, CheckCircle2, Building2 } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { ArrowLeft, MapPin, AlertTriangle, Calendar, Upload, Info, CheckCircle2, Building2, Wrench } from 'lucide-react';
 import { useToast } from '@/components/ui';
 
 interface CostCenter {
@@ -30,20 +30,41 @@ const priorities = [
   { key: 'low', label: 'Thấp (SLA 72h)', color: 'border-gray-400 bg-gray-50 text-gray-700' },
 ];
 
-export default function CreateTicketB2B() {
+function CreateTicketB2BContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { addToast } = useToast();
 
+  const assetSerial = searchParams.get('asset');
+
   const [step, setStep] = useState(1);
-  const [selectedCategory, setSelectedCategory] = useState('hardware');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState(assetSerial ? 'maintenance' : 'hardware');
+  const [title, setTitle] = useState(
+    assetSerial ? `Bảo dưỡng định kỳ thiết bị [${assetSerial}]` : ''
+  );
+  const [description, setDescription] = useState(
+    assetSerial
+      ? `Yêu cầu kiểm tra & bảo dưỡng kỹ thuật phòng ngừa định kỳ (Preventive Maintenance - SRS III.6) cho thiết bị mã số ${assetSerial}.`
+      : ''
+  );
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [selectedCostCenterId, setSelectedCostCenterId] = useState('');
   const [estimatedAmount, setEstimatedAmount] = useState('5000000');
   const [priority, setPriority] = useState('medium');
   const [location, setLocation] = useState('Văn phòng chính – Tầng 4');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (assetSerial) {
+      setSelectedCategory('maintenance');
+      setTitle((prev) => prev || `Bảo dưỡng định kỳ thiết bị [${assetSerial}]`);
+      setDescription(
+        (prev) =>
+          prev ||
+          `Yêu cầu kiểm tra & bảo dưỡng kỹ thuật phòng ngừa định kỳ (Preventive Maintenance - SRS III.6) cho thiết bị mã số ${assetSerial}.`
+      );
+    }
+  }, [assetSerial]);
 
   useEffect(() => {
     async function loadCostCenters() {
@@ -84,7 +105,7 @@ export default function CreateTicketB2B() {
           priority,
           costCenterId: selectedCostCenterId,
           estimatedAmount: estAmount,
-          attributes: JSON.stringify({ location }),
+          attributes: JSON.stringify({ location, assetSerial: assetSerial || undefined }),
         }),
       });
       const json = await res.json();
@@ -109,6 +130,26 @@ export default function CreateTicketB2B() {
       >
         <ArrowLeft className="w-4 h-4" /> Quay lại Dashboard
       </Link>
+
+      {/* Auto-Prefill Preventive Maintenance Banner (SRS III.6) */}
+      {assetSerial && (
+        <div className="mb-6 p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold">
+              <Wrench className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-amber-900 uppercase">Bảo Trì Dự Phòng (SRS III.6)</p>
+              <p className="text-sm font-semibold text-gray-800">
+                Thiết bị: <span className="font-mono text-amber-700">{assetSerial}</span>
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-mono px-2.5 py-1 rounded-full bg-amber-200/60 text-amber-900 font-semibold">
+            Auto-Prefilled
+          </span>
+        </div>
+      )}
 
       {/* Steps Indicator */}
       <div className="flex items-center gap-2 mb-8">
@@ -398,3 +439,19 @@ export default function CreateTicketB2B() {
     </div>
   );
 }
+
+export default function CreateTicketB2B() {
+  return (
+    <Suspense
+      fallback={
+        <div className="p-8 max-w-3xl mx-auto flex flex-col items-center justify-center py-20 text-gray-500 gap-3">
+          <div className="w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-sm font-medium">Đang tải biểu mẫu tạo yêu cầu dịch vụ...</p>
+        </div>
+      }
+    >
+      <CreateTicketB2BContent />
+    </Suspense>
+  );
+}
+

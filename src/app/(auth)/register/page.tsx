@@ -21,8 +21,12 @@ export default function RegisterPage() {
               Đăng ký doanh nghiệp (B2B)
             </Link>
 
+            <Link href="/register/provider" className="block w-full text-center bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-semibold px-4 py-3 rounded">
+              Đăng ký Đối tác Kỹ thuật (Service Provider)
+            </Link>
+
             <div className="text-sm text-center text-gray-600">
-              Nếu bạn muốn đăng ký cho công ty, chọn &quot;Đăng ký doanh nghiệp&quot; để nhập thông tin công ty.
+              Chọn &quot;Đăng ký doanh nghiệp&quot; để thiết lập Workspace B2B, hoặc &quot;Đối tác Kỹ thuật&quot; để cung cấp dịch vụ trên nền tảng.
             </div>
           </div>
         </CardBody>

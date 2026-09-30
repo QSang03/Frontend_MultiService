@@ -218,13 +218,13 @@ export async function protoGetApprovalSettings(orgId: string): Promise<B2BApprov
     if (existing) return existing;
     return {
       orgId,
-      enabled: true,
-      levels: 2,
-      threshold1: 2000000,
-      threshold2: 10000000,
+      enabled: false,
+      levels: 1,
+      threshold1: 0,
+      threshold2: 0,
       timeoutHours: 24,
       escalationHours: 48,
-      updatedAt: new Date().toISOString(),
+      updatedAt: undefined,
     };
   }
 }
@@ -293,13 +293,7 @@ export async function protoListCostCenters(orgId: string, activeOnly = false): P
       isActive: cc.isActive,
     }));
   } catch {
-    if (!memoryStore.costCenters.has(orgId)) {
-      memoryStore.costCenters.set(orgId, [
-        { id: 'cc-1', orgId, code: 'IT-01', name: 'IT Infrastructure', allocatedBudget: 30000000, currentSpent: 12500000, isActive: true },
-        { id: 'cc-2', orgId, code: 'OPS-01', name: 'Operations & Facilities', allocatedBudget: 15000000, currentSpent: 4500000, isActive: true },
-      ]);
-    }
-    const list = memoryStore.costCenters.get(orgId)!;
+    const list = memoryStore.costCenters.get(orgId) || [];
     return activeOnly ? list.filter((c) => c.isActive) : list;
   }
 }

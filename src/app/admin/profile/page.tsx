@@ -235,7 +235,7 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <h3 className="text-xl font-semibold text-gray-900">{profile?.name || 'Người dùng'}</h3>
-                  <p className="text-gray-500">{profile?.email || 'email@example.com'}</p>
+                  <p className="text-gray-500">{profile?.email || 'Chưa cập nhật email'}</p>
                 </div>
               </div>
 

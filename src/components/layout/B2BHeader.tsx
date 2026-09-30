@@ -29,9 +29,11 @@ const pageTitles: Record<string, string> = {
   '/customer/b2b/settings/organization': 'Cài đặt Tổ chức',
 };
 
-export default function B2BHeader({ onMenuToggle, orgName = 'ABC Corporation', isAdmin = false }: B2BHeaderProps) {
-  const pathname = usePathname() ?? '';
+export default function B2BHeader({ onMenuToggle, orgName, isAdmin = false }: B2BHeaderProps) {
   const { user } = useAuth();
+  const pathname = usePathname() ?? '';
+  const userRecord = user as unknown as Record<string, unknown> | null;
+  const displayOrgName = orgName || String(userRecord?.organization_name || userRecord?.orgName || 'Doanh nghiệp');
 
   const title = pageTitles[pathname] || 'Dashboard';
   const initials = user?.full_name
@@ -54,7 +56,7 @@ export default function B2BHeader({ onMenuToggle, orgName = 'ABC Corporation', i
             <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
               <Building2 className="w-3 h-3" />
-              <span>{orgName}</span>
+              <span>{displayOrgName}</span>
               {isAdmin && (
                 <span className="ml-1 px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold uppercase">
                   Admin

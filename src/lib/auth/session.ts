@@ -43,7 +43,9 @@ export async function createSessionWithTokens(
 
   // Set cookies
   const cookieStore = await cookies();
-  const IS_SECURE_COOKIES = process.env.NODE_ENV === 'production';
+  // Nếu chạy production bằng IP qua HTTP (không có HTTPS), cookie phải để secure: false vì trình duyệt sẽ từ chối lưu cookie secure trên HTTP
+  const IS_SECURE_COOKIES = process.env.COOKIE_SECURE === 'true' || 
+    (process.env.NODE_ENV === 'production' && process.env.NEXT_PUBLIC_APP_URL?.startsWith('https://') === true);
 
   cookieStore.set('itms_session', session, {
     httpOnly: true,
@@ -96,7 +98,8 @@ export async function getRefreshToken() {
 
 export async function updateTokens(accessToken: string, refreshToken: string) {
   const cookieStore = await cookies();
-  const IS_SECURE_COOKIES = process.env.NODE_ENV === 'production';
+  const IS_SECURE_COOKIES = process.env.COOKIE_SECURE === 'true' || 
+    (process.env.NODE_ENV === 'production' && process.env.NEXT_PUBLIC_APP_URL?.startsWith('https://') === true);
 
   cookieStore.set('access_token', accessToken, {
     httpOnly: true,

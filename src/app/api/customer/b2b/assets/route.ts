@@ -40,8 +40,32 @@ function timestampToIso(ts?: unknown): string | undefined {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const assetId = searchParams.get('assetId');
+    let assetId = searchParams.get('assetId');
+    const serial = searchParams.get('serial');
     const qrOnly = searchParams.get('qr') === 'true';
+
+    // 0. If searched by Serial Number, resolve assetId first
+    if (!assetId && serial) {
+      const searchRes = await protoListAssets({
+        orgId: '00000000-0000-0000-0000-000000000000',
+        search: serial.trim(),
+        pageSize: 5,
+      });
+      if (searchRes.success && searchRes.response) {
+        const resp = searchRes.response as Record<string, unknown>;
+        const list = (resp.assets as unknown[]) || [];
+        const matched = list.find((item: unknown) => {
+          const a = item as Record<string, unknown>;
+          return (
+            String(a.serialNumber || '').toLowerCase() === serial.trim().toLowerCase() ||
+            String(a.name || '').toLowerCase().includes(serial.trim().toLowerCase())
+          );
+        }) || list[0];
+        if (matched) {
+          assetId = String((matched as Record<string, unknown>).id || '');
+        }
+      }
+    }
 
     // 1. If QR code only requested
     if (assetId && qrOnly) {
@@ -113,7 +137,7 @@ export async function GET(request: NextRequest) {
     const search = searchParams.get('search') || '';
     const pageSize = searchParams.get('pageSize') ? parseInt(searchParams.get('pageSize')!, 10) : 50;
 
-    let assets: any[] = [];
+    let assets: unknown[] = [];
     let totalCount = 0;
 
     try {

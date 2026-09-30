@@ -111,7 +111,7 @@ export async function login(_prevState: unknown, formData: FormData) {
 
     if (data.mfa_required) {
       return {
-        error: 'MFA required but not implemented in this demo',
+        error: 'Tài khoản yêu cầu mã xác thực hai lớp (MFA). Vui lòng nhập mã bảo mật.',
         mfa_token: data.mfa_token,
       };
     }

@@ -118,8 +118,8 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             title="Lợi Nhuận Ròng (MTD)"
-            value={stats ? stats.netProfitMoFormatted : '42.890.000 đ'}
-            change={stats?.profitChangeText || '↑ 15% vs tháng trước'}
+            value={stats ? stats.netProfitMoFormatted : isLoading ? '—' : '0 đ'}
+            change={stats?.profitChangeText || (isLoading ? 'Đang tải...' : 'Chưa có dữ liệu')}
             changeType="positive"
             icon={DollarSign}
             iconColor="text-green-600"
@@ -127,8 +127,8 @@ export default function DashboardPage() {
           />
           <StatCard
             title="Tổ Chức B2B Đang Hoạt Động"
-            value={stats ? `${stats.activeTenantsCount} Tenants` : '12 Tenants'}
-            change={stats?.tenantsChangeText || '+ 3 Onboarding tháng này'}
+            value={stats ? `${stats.activeTenantsCount} Tenants` : isLoading ? '—' : '0 Tenants'}
+            change={stats?.tenantsChangeText || (isLoading ? 'Đang tải...' : 'Chưa có dữ liệu')}
             changeType="positive"
             icon={Building2}
             iconColor="text-blue-600"
@@ -136,8 +136,8 @@ export default function DashboardPage() {
           />
           <StatCard
             title="Nguy Cơ Vi Phạm SLA"
-            value={stats ? `${stats.slaBreachRiskCount} Tickets` : '2 Tickets'}
-            change={stats?.slaRiskChangeText || 'Cần điều phối KTV khẩn'}
+            value={stats ? `${stats.slaBreachRiskCount} Tickets` : isLoading ? '—' : '0 Tickets'}
+            change={stats?.slaRiskChangeText || (isLoading ? 'Đang tải...' : 'Vận hành đúng hạn SLA')}
             changeType={stats && stats.slaBreachRiskCount > 0 ? 'warning' : 'positive'}
             icon={AlertTriangle}
             iconColor="text-orange-600"
@@ -145,7 +145,7 @@ export default function DashboardPage() {
           />
           <StatCard
             title="Tải Hạ Tầng Hệ Thống"
-            value={stats ? `${stats.systemLoadPercent}%` : '28%'}
+            value={stats ? `${stats.systemLoadPercent}%` : isLoading ? '—' : '—'}
             change="Hoạt động bình thường"
             changeType="positive"
             icon={Activity}
