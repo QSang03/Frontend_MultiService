@@ -372,9 +372,12 @@ export async function protoCreateRma(
   payload: CreateRmaPayload
 ): Promise<{ success: boolean; response?: unknown; error?: string }> {
   try {
+    const { client, mod } = await createAuthenticatedInventoryClient();
+    const schema = mod.CreateRmaRequestSchema as unknown as DescMessage | undefined;
+    if (!schema) {
+      return { success: false, error: 'RMA_PROTO_SCHEMA_NOT_FOUND' };
+    }
     const response = await executeWithRefresh(async () => {
-      const { client, mod } = await createAuthenticatedInventoryClient();
-      const schema = mod.CreateRmaRequestSchema as unknown as DescMessage;
       const request = create(schema, {
         itemId: payload.itemId,
         vendorName: payload.vendorName,
@@ -399,9 +402,12 @@ export async function protoUpdateRmaStatus(
   payload: UpdateRmaStatusPayload
 ): Promise<{ success: boolean; response?: unknown; error?: string }> {
   try {
+    const { client, mod } = await createAuthenticatedInventoryClient();
+    const schema = mod.UpdateRmaStatusRequestSchema as unknown as DescMessage | undefined;
+    if (!schema) {
+      return { success: false, error: 'RMA_PROTO_SCHEMA_NOT_FOUND' };
+    }
     const response = await executeWithRefresh(async () => {
-      const { client, mod } = await createAuthenticatedInventoryClient();
-      const schema = mod.UpdateRmaStatusRequestSchema as unknown as DescMessage;
       const request = create(schema, {
         rmaId: payload.rmaId,
         status: payload.status,
@@ -423,9 +429,12 @@ export async function protoSwapRmaSerial(
   payload: SwapRmaSerialPayload
 ): Promise<{ success: boolean; response?: unknown; error?: string }> {
   try {
+    const { client, mod } = await createAuthenticatedInventoryClient();
+    const schema = mod.SwapRmaSerialRequestSchema as unknown as DescMessage | undefined;
+    if (!schema) {
+      return { success: false, error: 'RMA_PROTO_SCHEMA_NOT_FOUND' };
+    }
     const response = await executeWithRefresh(async () => {
-      const { client, mod } = await createAuthenticatedInventoryClient();
-      const schema = mod.SwapRmaSerialRequestSchema as unknown as DescMessage;
       const request = create(schema, {
         rmaId: payload.rmaId,
         replacedSerialNumber: payload.replacedSerialNumber,
@@ -446,9 +455,12 @@ export async function protoListRmas(
   payload: ListRmasPayload = {}
 ): Promise<{ success: boolean; response?: unknown; error?: string }> {
   try {
+    const { client, mod } = await createAuthenticatedInventoryClient();
+    const schema = mod.ListRmasRequestSchema as unknown as DescMessage | undefined;
+    if (!schema) {
+      return { success: false, error: 'RMA_PROTO_SCHEMA_NOT_FOUND' };
+    }
     const response = await executeWithRefresh(async () => {
-      const { client, mod } = await createAuthenticatedInventoryClient();
-      const schema = mod.ListRmasRequestSchema as unknown as DescMessage;
       const request = create(schema, {
         status: payload.status,
         itemId: payload.itemId,
@@ -472,9 +484,12 @@ export async function protoGetRma(
   rmaId: string
 ): Promise<{ success: boolean; response?: unknown; error?: string }> {
   try {
+    const { client, mod } = await createAuthenticatedInventoryClient();
+    const schema = mod.GetRmaRequestSchema as unknown as DescMessage | undefined;
+    if (!schema) {
+      return { success: false, error: 'RMA_PROTO_SCHEMA_NOT_FOUND' };
+    }
     const response = await executeWithRefresh(async () => {
-      const { client, mod } = await createAuthenticatedInventoryClient();
-      const schema = mod.GetRmaRequestSchema as unknown as DescMessage;
       const request = create(schema, { rmaId });
       type RpcMethod = (req: unknown) => Promise<unknown>;
       return await (client as unknown as Record<string, RpcMethod>).getRma(request as unknown);

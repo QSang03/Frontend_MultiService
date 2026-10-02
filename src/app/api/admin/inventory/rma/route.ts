@@ -72,11 +72,15 @@ export async function GET(request: NextRequest) {
 
     if (rmaId) {
       const result = await protoGetRma(rmaId);
-      if (!result.success || !result.response) {
-        return NextResponse.json({ error: result.error || 'RMA not found' }, { status: 404 });
+      if (result.success && result.response) {
+        const resp = result.response as Record<string, unknown>;
+        return NextResponse.json({ rma: mapRmaToDto(resp.rma) });
       }
-      const resp = result.response as Record<string, unknown>;
-      return NextResponse.json({ rma: mapRmaToDto(resp.rma) });
+      const isUnauth = result.error?.includes('SESSION_EXPIRED') || result.error?.toLowerCase().includes('unauthenticated');
+      return NextResponse.json(
+        { error: result.error || 'RMA not found' },
+        { status: isUnauth ? 401 : 404 }
+      );
     }
 
     const status = searchParams.get('status') || undefined;
@@ -93,22 +97,25 @@ export async function GET(request: NextRequest) {
       pageSize,
     });
 
-    if (!result.success || !result.response) {
-      return NextResponse.json({ error: result.error || 'Failed to list RMAs' }, { status: 500 });
+    if (result.success && result.response) {
+      const resp = result.response as Record<string, unknown>;
+      const rawRmas = (resp.rmas as unknown[]) || [];
+      const rmas = rawRmas.map(mapRmaToDto);
+      return NextResponse.json({
+        rmas,
+        nextPageToken: resp.nextPageToken || '',
+        totalCount: rmas.length,
+      });
     }
 
-    const resp = result.response as Record<string, unknown>;
-    const rawRmas = (resp.rmas as unknown[]) || [];
-    const rmas = rawRmas.map(mapRmaToDto);
-
-    return NextResponse.json({
-      rmas,
-      nextPageToken: resp.nextPageToken || '',
-      totalCount: rmas.length,
-    });
+    const isUnauth = result.error?.includes('SESSION_EXPIRED') || result.error?.toLowerCase().includes('unauthenticated');
+    return NextResponse.json(
+      { error: result.error || 'Failed to list RMAs from backend', rmas: [] },
+      { status: isUnauth ? 401 : 500 }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message, rmas: [] }, { status: 500 });
   }
 }
 
@@ -133,15 +140,19 @@ export async function POST(request: NextRequest) {
     };
 
     const result = await protoCreateRma(payload);
-    if (!result.success || !result.response) {
-      return NextResponse.json({ error: result.error || 'Failed to create RMA' }, { status: 500 });
+    if (result.success && result.response) {
+      const resp = result.response as Record<string, unknown>;
+      return NextResponse.json({
+        success: true,
+        rma: mapRmaToDto(resp.rma),
+      });
     }
 
-    const resp = result.response as Record<string, unknown>;
-    return NextResponse.json({
-      success: true,
-      rma: mapRmaToDto(resp.rma),
-    });
+    const isUnauth = result.error?.includes('SESSION_EXPIRED') || result.error?.toLowerCase().includes('unauthenticated');
+    return NextResponse.json(
+      { error: result.error || 'Failed to create RMA on backend' },
+      { status: isUnauth ? 401 : 500 }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -163,38 +174,46 @@ export async function PUT(request: NextRequest) {
         notes: body.notes,
       });
 
-      if (!result.success || !result.response) {
-        return NextResponse.json({ error: result.error || 'Failed to swap serial' }, { status: 500 });
+      if (result.success && result.response) {
+        const resp = result.response as Record<string, unknown>;
+        return NextResponse.json({
+          success: true,
+          rma: mapRmaToDto(resp.rma),
+        });
       }
 
-      const resp = result.response as Record<string, unknown>;
-      return NextResponse.json({
-        success: true,
-        rma: mapRmaToDto(resp.rma),
-      });
+      const isUnauth = result.error?.includes('SESSION_EXPIRED') || result.error?.toLowerCase().includes('unauthenticated');
+      return NextResponse.json(
+        { error: result.error || 'Failed to swap serial on backend' },
+        { status: isUnauth ? 401 : 500 }
+      );
     }
 
     // Status update
-    if (!body.status) {
-      return NextResponse.json({ error: 'status is required' }, { status: 400 });
+    if (body.status) {
+      const result = await protoUpdateRmaStatus({
+        rmaId: body.rmaId,
+        status: body.status,
+        vendorRefNumber: body.vendorRefNumber,
+        notes: body.notes,
+      });
+
+      if (result.success && result.response) {
+        const resp = result.response as Record<string, unknown>;
+        return NextResponse.json({
+          success: true,
+          rma: mapRmaToDto(resp.rma),
+        });
+      }
+
+      const isUnauth = result.error?.includes('SESSION_EXPIRED') || result.error?.toLowerCase().includes('unauthenticated');
+      return NextResponse.json(
+        { error: result.error || 'Failed to update RMA status on backend' },
+        { status: isUnauth ? 401 : 500 }
+      );
     }
 
-    const result = await protoUpdateRmaStatus({
-      rmaId: body.rmaId,
-      status: body.status,
-      vendorRefNumber: body.vendorRefNumber,
-      notes: body.notes,
-    });
-
-    if (!result.success || !result.response) {
-      return NextResponse.json({ error: result.error || 'Failed to update RMA status' }, { status: 500 });
-    }
-
-    const resp = result.response as Record<string, unknown>;
-    return NextResponse.json({
-      success: true,
-      rma: mapRmaToDto(resp.rma),
-    });
+    return NextResponse.json({ error: 'No update field provided (status or replacedSerialNumber)' }, { status: 400 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Internal server error';
     return NextResponse.json({ error: message }, { status: 500 });

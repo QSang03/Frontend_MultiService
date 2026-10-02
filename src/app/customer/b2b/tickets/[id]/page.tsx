@@ -143,6 +143,8 @@ export default function TicketDetailB2B() {
   const [slaBoostResult, setSlaBoostResult] = useState<{ success: boolean; message: string; newDeadline?: string } | null>(null);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [ratedStars, setRatedStars] = useState<number | null>(null);
+  const [ratedFeedback, setRatedFeedback] = useState<string>('');
+  const [ratedTags, setRatedTags] = useState<string[]>([]);
 
   /* ───── fetch ticket ───── */
   useEffect(() => {
@@ -168,6 +170,24 @@ export default function TicketDetailB2B() {
       .then((r) => { if (r.ok) return r.json(); return null; })
       .then((data) => { if (data?.quotation) setQuotation(data.quotation); })
       .catch(() => { });
+  }, [id]);
+
+  /* ───── fetch existing rating ───── */
+  useEffect(() => {
+    if (!id) return;
+    fetch(`/api/customer/tickets/rating?ticketId=${encodeURIComponent(id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        if (res?.success && res?.data) {
+          const rObj = (res.data.rating || res.data) as Record<string, unknown>;
+          if (rObj && typeof rObj.stars === 'number' && rObj.stars > 0) {
+            setRatedStars(rObj.stars);
+            if (typeof rObj.feedback === 'string') setRatedFeedback(rObj.feedback);
+            if (Array.isArray(rObj.tags)) setRatedTags(rObj.tags as string[]);
+          }
+        }
+      })
+      .catch(() => {});
   }, [id]);
 
   /* ───── chat ───── */
@@ -533,17 +553,34 @@ export default function TicketDetailB2B() {
             ) : null}
           </div>
           {ratedStars ? (
-            <div className="flex items-center gap-2 text-sm text-gray-700 bg-white/80 p-3 rounded-lg border border-amber-100">
-              <span className="font-medium text-amber-700">Điểm đánh giá của bạn:</span>
-              <div className="flex items-center gap-1">
-                {[1, 2, 3, 4, 5].map((s) => (
-                  <Star
-                    key={s}
-                    className={`w-4 h-4 ${s <= ratedStars ? "text-amber-500 fill-amber-500" : "text-gray-300"}`}
-                  />
-                ))}
+            <div className="space-y-2 bg-white/90 p-4 rounded-xl border border-amber-200 shadow-sm">
+              <div className="flex items-center gap-2 text-sm text-gray-700">
+                <span className="font-medium text-amber-800">Điểm đánh giá của bạn:</span>
+                <div className="flex items-center gap-1">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <Star
+                      key={s}
+                      className={`w-4 h-4 ${s <= ratedStars ? "text-amber-500 fill-amber-500" : "text-gray-300"}`}
+                    />
+                  ))}
+                </div>
+                <span className="text-xs font-semibold text-amber-700 ml-1">({ratedStars}/5 sao)</span>
               </div>
-              <span className="text-xs text-gray-500 ml-2">Cảm ơn quý doanh nghiệp đã phản hồi!</span>
+              {ratedTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {ratedTags.map((tag) => (
+                    <span key={tag} className="text-xs px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                      ✓ {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {ratedFeedback && (
+                <p className="text-xs text-gray-600 italic bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                  &ldquo;{ratedFeedback}&rdquo;
+                </p>
+              )}
+              <p className="text-xs text-emerald-600 font-medium pt-0.5">✓ Cảm ơn quý doanh nghiệp đã phản hồi dịch vụ!</p>
             </div>
           ) : (
             <div>
@@ -615,8 +652,9 @@ export default function TicketDetailB2B() {
         ticketTitle={ticket.title}
         technicianName={ticket.assignedTechId ? `Kỹ thuật viên #${ticket.assignedTechId}` : "Kỹ thuật viên phụ trách"}
         onClose={() => setShowRatingModal(false)}
-        onSubmitSuccess={(stars) => {
+        onSubmitSuccess={(stars, fb) => {
           setRatedStars(stars);
+          if (fb) setRatedFeedback(fb);
           setShowRatingModal(false);
         }}
       />
