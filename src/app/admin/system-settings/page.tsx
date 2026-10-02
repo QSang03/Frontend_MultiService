@@ -23,6 +23,7 @@ import {
 import TopHeader from '@/components/layout/TopHeader';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import * as XLSX from 'xlsx';
 
 // Dynamically import map component to avoid SSR issues
 const MapView = dynamic(() => import('@/components/system/MapView'), {
@@ -190,6 +191,86 @@ export default function SystemSettingsPage() {
       log.id.toLowerCase().includes(auditSearch.toLowerCase())
   );
 
+  const handleExportReport = () => {
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1: Tổng quan & Hạ tầng
+    const overviewData: (string | number)[][] = [
+      ['BÁO CÁO QUẢN TRỊ & GIÁM SÁT HỆ THỐNG (COMMAND CENTER)'],
+      ['Thời gian xuất:', new Date().toLocaleString('vi-VN')],
+      ['Chế độ bảo trì:', maintenanceMode ? 'ĐANG BẬT (BẢO TRÌ)' : 'HOẠT ĐỘNG BÌNH THƯỜNG'],
+      ['Tổng số KTV hiện trường:', technicians.length],
+      ['Số Ticket chờ điều phối:', pendingDispatch.length],
+      ['Số sự kiện Audit Log:', auditLogs.length],
+      [],
+      ['TRẠNG THÁI HẠ TẦNG VÀ CỔNG DỊCH VỤ'],
+      ['Tên Dịch Vụ', 'Trạng Thái', 'Độ Trễ / Thông Số'],
+      ...(infraHealth.length > 0
+        ? infraHealth.map((inf) => [inf.name, inf.status, inf.latency])
+        : [['Không có dữ liệu', '', '']]),
+    ];
+    const wsOverview = XLSX.utils.aoa_to_sheet(overviewData);
+    XLSX.utils.book_append_sheet(wb, wsOverview, 'Tong Quan & Ha Tang');
+
+    // Sheet 2: Kỹ thuật viên
+    const techHeaders = [
+      ['DANH SÁCH KỸ THUẬT VIÊN HIỆN TRƯỜNG'],
+      ['Mã KTV', 'Họ và Tên', 'Số Điện Thoại', 'Khu Vực Phụ Trách', 'Tọa Độ GPS (Lat, Lng)', 'Trạng Thái Trực', 'Ticket Đang Xử Lý'],
+    ];
+    const techRows = technicians.length > 0
+      ? technicians.map((tech) => [
+          tech.id,
+          tech.name,
+          tech.phone || 'Chưa cập nhật',
+          tech.assignedArea || 'Toàn thành phố',
+          `${tech.lat}, ${tech.lng}`,
+          tech.status,
+          tech.currentTicket || 'Không',
+        ])
+      : [['Không có kỹ thuật viên trực tuyến', '', '', '', '', '', '']];
+    const wsTech = XLSX.utils.aoa_to_sheet([...techHeaders, ...techRows]);
+    XLSX.utils.book_append_sheet(wb, wsTech, 'Ky Thuat Vien');
+
+    // Sheet 3: Ticket chờ điều phối
+    const ticketHeaders = [
+      ['DANH SÁCH TICKET CHỜ ĐIỀU PHỐI (PENDING DISPATCH)'],
+      ['Mã Phiếu', 'Tiêu Đề Yêu Cầu', 'Độ Ưu Tiên', 'Vị Trí / Khu Vực', 'Thời Gian Chờ'],
+    ];
+    const ticketRows = pendingDispatch.length > 0
+      ? pendingDispatch.map((t) => [
+          t.ticketCode,
+          t.title,
+          t.priority,
+          t.location,
+          t.timeAgo,
+        ])
+      : [['Không có phiếu chờ điều phối', '', '', '', '']];
+    const wsTicket = XLSX.utils.aoa_to_sheet([...ticketHeaders, ...ticketRows]);
+    XLSX.utils.book_append_sheet(wb, wsTicket, 'Cho Dieu Phoi');
+
+    // Sheet 4: Audit Logs
+    const auditHeaders = [
+      ['NHẬT KÝ KIỂM TOÁN HỆ THỐNG BẤT BIẾN (AUDIT LOGS)'],
+      ['Mã Log', 'Loại Hành Động', 'Người Thực Hiện', 'Thời Gian', 'Chi Tiết Thay Đổi'],
+    ];
+    const auditRows = auditLogs.length > 0
+      ? auditLogs.map((log) => [
+          log.id,
+          log.type,
+          log.actor,
+          log.time || log.timestamp,
+          log.description,
+        ])
+      : [['Chưa có nhật ký kiểm toán', '', '', '', '']];
+    const wsAudit = XLSX.utils.aoa_to_sheet([...auditHeaders, ...auditRows]);
+    XLSX.utils.book_append_sheet(wb, wsAudit, 'Audit Logs');
+
+    // Tải trực tiếp file Excel .xlsx
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const fileName = `bao_cao_he_thong_${dateStr}_${Date.now().toString().slice(-4)}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
       <TopHeader title="System Settings" icon={<Settings className="w-6 h-6" />} />
@@ -220,22 +301,7 @@ export default function SystemSettingsPage() {
               Làm mới
             </button>
             <button
-              onClick={() => {
-                const report = {
-                  generatedAt: new Date().toISOString(),
-                  maintenanceMode,
-                  activeTechnicians: technicians.length,
-                  pendingTickets: pendingDispatch.length,
-                  auditLogsCount: auditLogs.length,
-                  infra: infraHealth,
-                };
-                const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `system_report_${Date.now()}.json`;
-                a.click();
-              }}
+              onClick={handleExportReport}
               className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm font-medium shadow-sm"
             >
               <Download className="w-4 h-4" />
